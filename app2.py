@@ -34,8 +34,8 @@ P3_PULL = 7
 
 # --- Sensor ---
 SENSOR1 = 5
-SENSOR2 = 29
-SENSOR3 = 31
+SENSOR2 = 16
+SENSOR3 = 18
 
 # Danh sách setup GPIO (chỉ dùng để setup ban đầu)
 RELAY_PINS = [P1_PUSH, P1_PULL, P2_PUSH, P2_PULL, P3_PUSH, P3_PULL]
