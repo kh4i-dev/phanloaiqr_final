@@ -8,7 +8,80 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* ... (CSS styles - kept concise for brevity) ... */
+        /* Áp dụng các class tiện ích Tailwind */
+        @tailwind base;
+        @tailwind components;
+        @tailwind utilities;
+
+        @layer components {
+            .input-field {
+                @apply w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500 text-sm;
+            }
+
+            .btn {
+                @apply font-bold py-2 px-4 rounded-lg shadow-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+                /* Thêm disabled styles */
+            }
+
+            .btn-blue {
+                @apply bg-blue-600 hover:bg-blue-700 text-white;
+            }
+
+            .btn-gray {
+                @apply bg-gray-600 hover:bg-gray-500 text-white;
+            }
+
+            .btn-gray-sm {
+                @apply bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs;
+            }
+
+            .btn-green {
+                @apply bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm;
+            }
+
+            .btn-red {
+                @apply bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm;
+            }
+
+            .btn-red-lg {
+                @apply bg-red-600 hover:bg-red-700 text-white;
+            }
+
+            /* Nút Dừng Test lớn hơn */
+            .btn-yellow {
+                @apply bg-yellow-500 hover:bg-yellow-600 text-black py-2 px-5 rounded-md shadow-md text-sm;
+            }
+
+            .json-preview {
+                @apply bg-gray-900 text-green-400 text-xs p-3 rounded-md overflow-x-auto border border-gray-700 h-32;
+            }
+
+            .test-box {
+                @apply bg-gray-900 p-3 rounded-lg text-center;
+            }
+
+            .test-light {
+                @apply mx-auto mt-1 w-6 h-6;
+            }
+
+            .log-box {
+                @apply bg-gray-900 rounded-md p-2 overflow-y-auto text-xs font-mono space-y-1;
+            }
+
+            .modal-backdrop {
+                @apply hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 opacity-0;
+            }
+
+            .modal-content {
+                @apply bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm transform scale-95;
+            }
+
+            .modal-actions {
+                @apply flex justify-end space-x-3;
+            }
+        }
+
+        /* Các CSS tùy chỉnh khác */
         body {
             font-family: Inter, sans-serif;
         }
@@ -99,10 +172,9 @@
             transition: transform 0.2s ease-in-out;
         }
 
-        /* (MỚI) Style cho test log container */
         #test-log-container {
             height: 200px;
-            /* Hoặc chiều cao bạn muốn */
+            /* Chiều cao log test */
         }
     </style>
 </head>
@@ -159,10 +231,11 @@
             <div class="flex items-center justify-center">
                 <span class="text-lg font-bold">⚠️ HỆ THỐNG ĐANG BẢO TRÌ: <span id="maintenance-error"
                         class="font-normal">...</span></span>
-                <button onclick="window.location.reload()"
+                <button id="reload-btn" onclick="window.location.reload()"
                     class="ml-4 bg-white text-red-700 font-bold py-1 px-3 rounded-md text-sm hover:bg-gray-200">
                     Tải Lại Trang
                 </button>
+                <!-- Nút Reset Bảo trì sẽ được JS thêm vào đây -->
             </div>
         </div>
 
@@ -191,8 +264,8 @@
                     <!-- Card Logs -->
                     <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
                         <h2 class="text-lg font-semibold mb-2 text-white">🧾 Logs Hệ Thống</h2>
-                        <div id="log-container"
-                            class="h-64 md:h-80 bg-gray-900 rounded-md p-2 overflow-y-auto text-xs font-mono space-y-1">
+                        <!-- (SỬA LỖI) Sử dụng class Tailwind -->
+                        <div id="log-container" class="log-box h-64 md:h-80">
                         </div>
                     </div>
                 </div>
@@ -201,63 +274,62 @@
                     <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
                         <h2 class="text-lg font-semibold mb-3 text-white">⚙️ Trạng Thái Lanes</h2>
                         <div class="space-y-3">
-                            <!-- Lanes content -->
+                            <!-- Lanes content - Sử dụng class Tailwind -->
                             <div id="lane-0" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1"> <span id="lane-0-name"
                                         class="font-bold">Loại 1</span> <span id="status-text-0"
-                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
-                                        sàng</span> </div>
-                                <div class="flex justify-between text-sm mb-1"> <span>Đã đếm:</span> <span
+                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">...</span>
+                                </div>
+                                <div class="flex justify-between text-sm mb-1"> <span>Đếm:</span> <span
                                         id="lane-0-count" class="font-bold text-lg">0</span> </div>
-                                <div class="flex justify-between text-xs"><span>Cảm biến:</span>
+                                <div class="flex justify-between text-xs items-center"><span>Sensor:</span>
                                     <div id="lane-0-sensor" class="sensor-light sensor-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Thu:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Thu:</span>
                                     <div id="lane-0-grab" class="relay-light relay-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Đẩy:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Đẩy:</span>
                                     <div id="lane-0-push" class="relay-light relay-inactive"></div>
                                 </div>
                             </div>
                             <div id="lane-1" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1"> <span id="lane-1-name"
                                         class="font-bold">Loại 2</span> <span id="status-text-1"
-                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
-                                        sàng</span> </div>
-                                <div class="flex justify-between text-sm mb-1"> <span>Đã đếm:</span> <span
+                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">...</span>
+                                </div>
+                                <div class="flex justify-between text-sm mb-1"> <span>Đếm:</span> <span
                                         id="lane-1-count" class="font-bold text-lg">0</span> </div>
-                                <div class="flex justify-between text-xs"><span>Cảm biến:</span>
+                                <div class="flex justify-between text-xs items-center"><span>Sensor:</span>
                                     <div id="lane-1-sensor" class="sensor-light sensor-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Thu:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Thu:</span>
                                     <div id="lane-1-grab" class="relay-light relay-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Đẩy:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Đẩy:</span>
                                     <div id="lane-1-push" class="relay-light relay-inactive"></div>
                                 </div>
                             </div>
                             <div id="lane-2" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1"> <span id="lane-2-name"
                                         class="font-bold">Loại 3</span> <span id="status-text-2"
-                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
-                                        sàng</span> </div>
-                                <div class="flex justify-between text-sm mb-1"> <span>Đã đếm:</span> <span
+                                        class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">...</span>
+                                </div>
+                                <div class="flex justify-between text-sm mb-1"> <span>Đếm:</span> <span
                                         id="lane-2-count" class="font-bold text-lg">0</span> </div>
-                                <div class="flex justify-between text-xs"><span>Cảm biến:</span>
+                                <div class="flex justify-between text-xs items-center"><span>Sensor:</span>
                                     <div id="lane-2-sensor" class="sensor-light sensor-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Thu:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Thu:</span>
                                     <div id="lane-2-grab" class="relay-light relay-inactive"></div>
                                 </div>
-                                <div class="flex justify-between text-xs mt-1"><span>Relay Đẩy:</span>
+                                <div class="flex justify-between text-xs items-center mt-1"><span>Đẩy:</span>
                                     <div id="lane-2-push" class="relay-light relay-inactive"></div>
                                 </div>
                             </div>
                         </div>
-                        <button
-                            onclick="showConfirmModal('Bạn có chắc muốn reset đếm toàn bộ?', () => resetCount('all'))"
-                            class="mt-3 w-full bg-red-600 hover:bg-red-700 text-white py-1.5 px-2 rounded text-sm font-medium">Reset
-                            Toàn Bộ</button>
+                        <!-- (SỬA LỖI) Sử dụng class Tailwind -->
+                        <button onclick="showConfirmModal('Reset đếm toàn bộ?', () => resetCount('all'))"
+                            class="mt-3 w-full btn btn-red-lg text-sm">Reset Đếm</button>
                     </div>
                 </div>
             </div>
@@ -266,123 +338,109 @@
         <!-- Trang Cấu Hình -->
         <div id="page-config" class="hidden">
             <div class="max-w-3xl mx-auto bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                <h2 class="text-2xl font-semibold text-white mb-4">⚙️ Cấu Hình Hệ Thống</h2>
-                <!-- Timing Config -->
+                <h2 class="text-2xl font-semibold text-white mb-4">⚙️ Cấu Hình</h2>
+                <!-- Timing Config - Sử dụng class Tailwind -->
                 <div class="bg-gray-900 p-4 rounded-lg mb-4">
                     <h3 class="text-lg font-semibold text-gray-300 mb-3">Timing (s)</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div> <label for="config-cycle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
-                                gian đẩy</label> <input type="number" step="0.05" id="config-cycle_delay"
-                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <div> <label for="config-settle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
-                                gian chờ</label> <input type="number" step="0.05" id="config-settle_delay"
-                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <div> <label for="config-sensor_debounce"
-                                class="block text-sm font-medium text-gray-400 mb-1">Chống nhiễu sensor</label> <input
-                                type="number" step="0.05" id="config-sensor_debounce"
-                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-                        <div> <label for="config-push_delay" class="block text-sm font-medium text-gray-400 mb-1">Trễ
-                                đẩy sensor</label> <input type="number" step="0.05" id="config-push_delay"
-                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
+                        <div><label for="config-cycle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
+                                gian đẩy</label><input type="number" step="0.05" id="config-cycle_delay"
+                                class="input-field"></div>
+                        <div><label for="config-settle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
+                                gian chờ</label><input type="number" step="0.05" id="config-settle_delay"
+                                class="input-field"></div>
+                        <div><label for="config-sensor_debounce"
+                                class="block text-sm font-medium text-gray-400 mb-1">Chống nhiễu sensor</label><input
+                                type="number" step="0.05" id="config-sensor_debounce" class="input-field"></div>
+                        <div><label for="config-push_delay" class="block text-sm font-medium text-gray-400 mb-1">Trễ đẩy
+                                sensor</label><input type="number" step="0.05" id="config-push_delay"
+                                class="input-field"></div>
                     </div>
                 </div>
-                <!-- GPIO Config -->
+                <!-- GPIO Config - Sử dụng class Tailwind -->
                 <div class="bg-gray-900 p-4 rounded-lg mb-4">
                     <h3 class="text-lg font-semibold text-gray-300 mb-3">Chân Cắm (GPIO)</h3>
-                    <div> <label for="config-gpio_mode" class="block text-sm font-medium text-gray-400 mb-1">Chế độ
-                            chân</label> <select id="config-gpio_mode"
-                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                    <div><label for="config-gpio_mode" class="block text-sm font-medium text-gray-400 mb-1">Chế độ
+                            chân</label><select id="config-gpio_mode" class="input-field">
                             <option value="BCM">BCM</option>
                             <option value="BOARD">BOARD</option>
-                        </select> </div>
+                        </select></div>
                 </div>
-                <div class="flex space-x-3">
-                    <button onclick="saveConfig()"
-                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Lưu</button>
-                    <button onclick="loadConfig()"
-                        class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg shadow-md">Tải
-                        Lại</button>
-                </div>
+                <!-- Buttons - Sử dụng class Tailwind -->
+                <div class="flex space-x-3"><button onclick="saveConfig()"
+                        class="flex-1 btn btn-blue">Lưu</button><button onclick="loadConfig()"
+                        class="flex-1 btn btn-gray">Tải Lại</button></div>
+                <!-- JSON Preview - Sử dụng class Tailwind -->
                 <div class="mt-4">
-                    <h3 class="text-sm font-medium text-gray-400 mb-2">📄 JSON cấu hình hiện tại</h3>
-                    <pre id="config-json"
-                        class="bg-gray-900 text-green-400 text-xs p-3 rounded-md overflow-x-auto border border-gray-700 h-32">Đang tải...</pre>
+                    <h3 class="text-sm font-medium text-gray-400 mb-2">📄 JSON cấu hình</h3>
+                    <pre id="config-json" class="json-preview">...</pre>
                 </div>
             </div>
         </div> <!-- /#page-config -->
 
-        <!-- Trang Test -->
+        <!-- Trang Test - Sử dụng class Tailwind -->
         <div id="page-test" class="hidden">
             <div class="max-w-3xl mx-auto bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                <h2 class="text-2xl font-semibold text-white mb-4">🧪 Kiểm Tra Cảm Biến & Relay</h2>
+                <h2 class="text-2xl font-semibold text-white mb-4">🧪 Kiểm Tra</h2>
                 <!-- Auto Test -->
                 <div class="bg-gray-900 p-4 rounded-lg mb-4 text-center">
-                    <h3 class="text-lg font-semibold text-gray-300 mb-3">Tự động Test (Sensor → Relay)</h3>
-                    <button id="toggle-auto-test" onclick="toggleAutoTest()"
-                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-md shadow-md w-full md:w-auto">🔄
+                    <h3 class="text-lg font-semibold text-gray-300 mb-3">Auto Test (Sensor → Relay)</h3>
+                    <button id="toggle-auto-test" onclick="toggleAutoTest()" class="btn btn-blue w-full md:w-auto">🔄
                         Bật Auto Test</button>
                 </div>
-                <!-- Cảm biến -->
+                <!-- Sensor Status -->
                 <div class="mb-4">
-                    <h3 class="text-lg font-semibold text-gray-300 mb-2">Trạng thái Cảm biến</h3>
+                    <h3 class="text-lg font-semibold text-gray-300 mb-2">Trạng thái Sensor</h3>
                     <div id="sensor-status" class="grid grid-cols-3 gap-3">
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <p class="text-sm text-gray-400 mb-2">Sensor 1</p>
-                            <div id="test-sensor-0" class="sensor-light sensor-inactive mx-auto mt-1 w-6 h-6"></div>
+                        <div class="test-box">
+                            <p class="text-sm text-gray-400 mb-2">S1</p>
+                            <div id="test-sensor-0" class="sensor-light sensor-inactive test-light"></div>
                         </div>
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <p class="text-sm text-gray-400 mb-2">Sensor 2</p>
-                            <div id="test-sensor-1" class="sensor-light sensor-inactive mx-auto mt-1 w-6 h-6"></div>
+                        <div class="test-box">
+                            <p class="text-sm text-gray-400 mb-2">S2</p>
+                            <div id="test-sensor-1" class="sensor-light sensor-inactive test-light"></div>
                         </div>
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <p class="text-sm text-gray-400 mb-2">Sensor 3</p>
-                            <div id="test-sensor-2" class="sensor-light sensor-inactive mx-auto mt-1 w-6 h-6"></div>
+                        <div class="test-box">
+                            <p class="text-sm text-gray-400 mb-2">S3</p>
+                            <div id="test-sensor-2" class="sensor-light sensor-inactive test-light"></div>
                         </div>
                     </div>
                 </div>
-                <!-- Relay Test -->
+                <!-- Manual Relay Test -->
                 <div>
                     <h3 class="text-lg font-semibold text-gray-300 mb-2">Test Relay Thủ Công</h3>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <h4 class="font-semibold mb-2 text-white">Loại 1</h4> <button onclick="testRelay(0,'grab')"
-                                class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded mr-2 text-sm">Thu</button>
-                            <button onclick="testRelay(0,'push')"
-                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Đẩy</button>
+                        <div class="test-box">
+                            <h4 class="font-semibold mb-2 text-white">L1</h4><button onclick="testRelay(0,'grab')"
+                                class="btn btn-green mr-2">Thu</button><button onclick="testRelay(0,'push')"
+                                class="btn btn-red">Đẩy</button>
                         </div>
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <h4 class="font-semibold mb-2 text-white">Loại 2</h4> <button onclick="testRelay(1,'grab')"
-                                class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded mr-2 text-sm">Thu</button>
-                            <button onclick="testRelay(1,'push')"
-                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Đẩy</button>
+                        <div class="test-box">
+                            <h4 class="font-semibold mb-2 text-white">L2</h4><button onclick="testRelay(1,'grab')"
+                                class="btn btn-green mr-2">Thu</button><button onclick="testRelay(1,'push')"
+                                class="btn btn-red">Đẩy</button>
                         </div>
-                        <div class="bg-gray-900 p-3 rounded-lg text-center">
-                            <h4 class="font-semibold mb-2 text-white">Loại 3</h4> <button onclick="testRelay(2,'grab')"
-                                class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded mr-2 text-sm">Thu</button>
-                            <button onclick="testRelay(2,'push')"
-                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Đẩy</button>
+                        <div class="test-box">
+                            <h4 class="font-semibold mb-2 text-white">L3</h4><button onclick="testRelay(2,'grab')"
+                                class="btn btn-green mr-2">Thu</button><button onclick="testRelay(2,'push')"
+                                class="btn btn-red">Đẩy</button>
                         </div>
                     </div>
-                    <button onclick="testAllRelays()"
-                        class="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-5 rounded-md shadow-md w-full">🔁
-                        Test Toàn Bộ Relay</button>
+                    <!-- Test All / Stop Buttons - Sử dụng class Tailwind -->
+                    <div class="flex space-x-2 mt-4">
+                        <button id="test-all-btn" onclick="testAllRelays()" class="btn btn-yellow flex-1">🔁 Test Toàn
+                            Bộ</button>
+                        <button id="stop-test-btn" onclick="stopAllTests()" class="btn btn-red-lg flex-1 hidden">🛑 Dừng
+                            Test</button> <!-- Sử dụng btn-red-lg -->
+                    </div>
                 </div>
-                <!-- Khu vực Log Test -->
+                <!-- Test Log Area - Sử dụng class Tailwind -->
                 <div class="mt-6">
                     <div class="flex justify-between items-center mb-2">
-                        <h3 class="text-lg font-semibold text-gray-300">Logs Test</h3>
-                        <button onclick="clearTestLog()"
-                            class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs">Xóa Log
-                            Test</button>
+                        <h3 class="text-lg font-semibold text-gray-300">Logs Test</h3><button onclick="clearTestLog()"
+                            class="btn btn-gray-sm">Xóa Log</button>
                     </div>
-                    <div id="test-log-container"
-                        class="bg-gray-900 rounded-md p-2 overflow-y-auto text-xs font-mono space-y-1 border border-gray-700">
-                        <!-- Test log messages will appear here -->
-                    </div>
+                    <div id="test-log-container" class="log-box border border-gray-700"></div>
                 </div>
             </div>
         </div> <!-- /#page-test -->
@@ -390,30 +448,27 @@
         <!-- Trang Thống Kê -->
         <div id="page-stats" class="hidden">
             <div id="stats-card" class="bg-gray-800 p-3 rounded-lg shadow-lg">
-                <h2 class="text-lg font-semibold mb-2 text-white">📊 Thống Kê Sản Lượng (Theo Ngày)</h2>
+                <h2 class="text-lg font-semibold mb-2 text-white">📊 Thống Kê Sản Lượng</h2>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="md:col-span-2 bg-gray-900 p-2 rounded-md"> <canvas id="sort-chart-bar" class="w-full"
-                            height="300"></canvas> </div>
-                    <div class="md:col-span-1 bg-gray-900 p-2 rounded-md"> <canvas id="sort-chart-doughnut"
-                            class="w-full" height="300"></canvas> </div>
+                    <div class="md:col-span-2 bg-gray-900 p-2 rounded-md"><canvas id="sort-chart-bar" class="w-full"
+                            height="300"></canvas></div>
+                    <div class="md:col-span-1 bg-gray-900 p-2 rounded-md"><canvas id="sort-chart-doughnut"
+                            class="w-full" height="300"></canvas></div>
                 </div>
             </div>
         </div> <!-- /#page-stats -->
 
     </main>
 
-    <!-- Modal Xác Nhận -->
-    <div id="confirm-modal"
-        class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 opacity-0"
-        onclick="closeConfirmModal()">
-        <div id="confirm-modal-content" class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm transform scale-95"
-            onclick="event.stopPropagation()">
+    <!-- Modal Xác Nhận - Sử dụng class Tailwind -->
+    <div id="confirm-modal" class="modal-backdrop" onclick="closeConfirmModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
             <h3 class="text-lg font-bold text-white mb-4" id="confirm-modal-title">Xác nhận</h3>
-            <p class="text-gray-300 mb-6" id="confirm-modal-text">Bạn chắc chắn?</p>
-            <div class="flex justify-end space-x-3"> <button id="confirm-modal-cancel"
-                    class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg">Hủy</button> <button
-                    id="confirm-modal-ok"
-                    class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Đồng ý</button> </div>
+            <p class="text-gray-300 mb-6" id="confirm-modal-text">?</p>
+            <div class="modal-actions">
+                <button id="confirm-modal-cancel" class="btn btn-gray">Hủy</button>
+                <button id="confirm-modal-ok" class="btn btn-red-lg">Đồng ý</button> <!-- Sử dụng btn-red-lg -->
+            </div>
         </div>
     </div>
 
@@ -447,6 +502,10 @@
                     if (data.type === "state_update") updateState(data.state);
                     else if (data.type === "log") addLog(data.log_type, data.message, data.timestamp, data.data);
                     else if (data.type === "maintenance_update") updateMaintenanceBanner(data.enabled, data.reason);
+                    else if (data.type === "test_sequence_complete") {
+                        document.getElementById('test-all-btn').disabled = false;
+                        document.getElementById('stop-test-btn').classList.add('hidden');
+                    }
                 } catch (e) { console.error("Lỗi parse JSON:", e, event.data); addLog("error", "Nhận tin nhắn WS không hợp lệ."); }
             };
             ws.onclose = () => { addLog("error", "Mất kết nối WS. Thử lại sau 3s..."); setTimeout(connectWebSocket, 3000); };
@@ -500,7 +559,7 @@
             const time = timestamp || new Date().toLocaleTimeString(); let colorClass = "text-gray-400", prefix = `[INFO]`;
             switch (type) {
                 case "success": colorClass = "text-green-400"; prefix = `[OK]`; break; case "error": colorClass = "text-red-400"; prefix = `[LỖI]`; break; case "warn": colorClass = "text-yellow-400"; prefix = `[WARN]`; break;
-                case "sort": colorClass = "text-cyan-400"; prefix = `[SORT]`; message = `Phân loại ${data.name}, tổng: ${data.count}`; break;
+                case "sort": colorClass = "text-cyan-400"; prefix = `[SORT]`; message = `Phân loại ${data?.name ?? '?'}, tổng: ${data?.count ?? '?'}`; break;
                 case "qr": colorClass = "text-blue-400"; prefix = `[QR]`; message = `Phát hiện ${data}`; showQrOverlay(data, 'bg-blue-600'); break;
                 case "qr_ng": colorClass = "text-red-500"; prefix = `[QR]`; message = `Hàng NG: ${data}`; showQrOverlay(data, 'bg-red-600'); break;
                 case "unknown_qr": colorClass = "text-yellow-500"; prefix = `[QR]`; message = `Không rõ: ${data}`; showQrOverlay(data, 'bg-yellow-500'); break;
@@ -515,190 +574,118 @@
         }
         function clearTestLog() { const c = document.getElementById("test-log-container"); if (c) { c.innerHTML = ''; addLog('info', 'Đã xóa log test.'); } }
 
-        // ===== (SỬA LỖI) CẬP NHẬT TRẠNG THÁI (STATE) =====
+        // ===== CẬP NHẬT TRẠNG THÁI (STATE) =====
         function updateState(state) {
             if (!state) return;
-
-            // === Hiển thị Timing Config (Trang Cấu Hình) ===
+            // Config Inputs
             if (state.timing_config) {
                 const cfg = state.timing_config;
-                const updateInput = (id, value, defaultValue = '') => { // Thêm defaultValue
-                    const el = document.getElementById(id);
-                    // Chỉ cập nhật nếu không đang focus
-                    if (el && document.activeElement !== el) {
-                        el.value = value ?? defaultValue;
-                    }
-                };
-                updateInput('config-cycle_delay', cfg.cycle_delay, 0); // Mặc định là 0
-                updateInput('config-settle_delay', cfg.settle_delay, 0);
-                updateInput('config-sensor_debounce', cfg.sensor_debounce, 0);
-                updateInput('config-push_delay', cfg.push_delay, 0);
-                updateInput('config-gpio_mode', cfg.gpio_mode, "BCM"); // Mặc định BCM
-
-                // Cập nhật JSON preview
-                const cfgBox = document.getElementById("config-json");
-                if (cfgBox) { cfgBox.textContent = JSON.stringify(cfg, null, 2); }
+                const updateInput = (id, value, dflt = '') => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = value ?? dflt; };
+                updateInput('config-cycle_delay', cfg.cycle_delay, 0); updateInput('config-settle_delay', cfg.settle_delay, 0);
+                updateInput('config-sensor_debounce', cfg.sensor_debounce, 0); updateInput('config-push_delay', cfg.push_delay, 0);
+                updateInput('config-gpio_mode', cfg.gpio_mode, "BCM");
+                const cfgBox = document.getElementById("config-json"); if (cfgBox) cfgBox.textContent = JSON.stringify(cfg, null, 2);
             }
-
-            // === Cập nhật trạng thái các lanes (Trang Chủ & Trang Test) ===
-            if (state.lanes && Array.isArray(state.lanes)) { // Thêm kiểm tra Array.isArray
+            // Lanes
+            if (state.lanes && Array.isArray(state.lanes)) {
                 state.lanes.forEach((lane, i) => {
-                    // Đảm bảo lane là object trước khi truy cập
-                    if (typeof lane !== 'object' || lane === null) {
-                        console.warn(`Dữ liệu lane ${i} không hợp lệ:`, lane);
-                        return; // Bỏ qua lane này nếu dữ liệu sai
-                    }
-
-                    // Cập nhật Trang Chủ
-                    const nameEl = document.getElementById(`lane-${i}-name`);
-                    if (nameEl) nameEl.textContent = lane.name || `Lane ${i + 1}`;
-                    const countEl = document.getElementById(`lane-${i}-count`);
-                    if (countEl) countEl.textContent = lane.count ?? 0;
+                    if (typeof lane !== 'object' || lane === null) return console.warn(`Lane ${i} invalid:`, lane);
+                    const nameEl = document.getElementById(`lane-${i}-name`); if (nameEl) nameEl.textContent = lane.name || `L${i + 1}`;
+                    const countEl = document.getElementById(`lane-${i}-count`); if (countEl) countEl.textContent = lane.count ?? 0;
                     const statusEl = document.getElementById(`status-text-${i}`);
                     if (statusEl) {
-                        statusEl.textContent = lane.status ?? "Không rõ";
-                        const isWaiting = lane.status?.includes("Đang chờ") || lane.status?.includes("Đang phân loại");
-                        statusEl.classList.toggle("status-pulse", isWaiting);
-                        statusEl.classList.toggle("bg-blue-500", isWaiting);
-                        statusEl.classList.toggle("bg-gray-700", !isWaiting);
+                        statusEl.textContent = lane.status ?? "?"; const wait = lane.status?.includes("Đang") ?? false;
+                        statusEl.classList.toggle("status-pulse", wait); statusEl.classList.toggle("bg-blue-500", wait); statusEl.classList.toggle("bg-gray-700", !wait);
                     }
-                    const sensorEl = document.getElementById(`lane-${i}-sensor`);
-                    if (sensorEl) {
-                        sensorEl.classList.toggle("sensor-active", lane.sensor_reading === 0);
-                        sensorEl.classList.toggle("sensor-inactive", lane.sensor_reading !== 0);
-                    }
-                    const grabEl = document.getElementById(`lane-${i}-grab`);
-                    if (grabEl) {
-                        grabEl.classList.toggle("relay-active", lane.relay_grab === 1);
-                        grabEl.classList.toggle("relay-inactive", lane.relay_grab !== 1);
-                    }
-                    const pushEl = document.getElementById(`lane-${i}-push`);
-                    if (pushEl) {
-                        pushEl.classList.toggle("relay-active", lane.relay_push === 1);
-                        pushEl.classList.toggle("relay-inactive", lane.relay_push !== 1);
-                    }
-
-                    // Cập nhật Trang Test
-                    const testSensor = document.getElementById(`test-sensor-${i}`);
-                    if (testSensor) {
-                        testSensor.classList.toggle("sensor-active", lane.sensor_reading === 0);
-                        testSensor.classList.toggle("sensor-inactive", lane.sensor_reading !== 0);
-                    }
+                    const sensorEl = document.getElementById(`lane-${i}-sensor`); if (sensorEl) { sensorEl.classList.toggle("sensor-active", lane.sensor_reading === 0); sensorEl.classList.toggle("sensor-inactive", lane.sensor_reading !== 0); }
+                    const grabEl = document.getElementById(`lane-${i}-grab`); if (grabEl) { grabEl.classList.toggle("relay-active", lane.relay_grab === 1); grabEl.classList.toggle("relay-inactive", lane.relay_grab !== 1); }
+                    const pushEl = document.getElementById(`lane-${i}-push`); if (pushEl) { pushEl.classList.toggle("relay-active", lane.relay_push === 1); pushEl.classList.toggle("relay-inactive", lane.relay_push !== 1); }
+                    const testSensor = document.getElementById(`test-sensor-${i}`); if (testSensor) { testSensor.classList.toggle("sensor-active", lane.sensor_reading === 0); testSensor.classList.toggle("sensor-inactive", lane.sensor_reading !== 0); }
                 });
-            } else {
-                console.warn("Dữ liệu state.lanes không hợp lệ:", state.lanes);
-            }
-
-
-            // === Cập nhật Badges (Huy hiệu) & Banner Bảo trì ===
+            } else console.warn("state.lanes invalid:", state.lanes);
+            // Badges & Banner
             document.getElementById('mock-badge')?.classList.toggle('hidden', !state.is_mock);
             updateMaintenanceBanner(state.maintenance_mode, state.last_error);
         }
 
-
         // ===== BANNER BẢO TRÌ =====
         function updateMaintenanceBanner(isMaintenance, reason) {
-            const banner = document.getElementById('maintenance-banner');
-            const errorSpan = document.getElementById('maintenance-error');
-            const maintBadge = document.getElementById('maintenance-badge');
-            if (!banner || !errorSpan || !maintBadge) return; // Thoát nếu không tìm thấy element
-
+            const banner = document.getElementById('maintenance-banner'), errorSpan = document.getElementById('maintenance-error'), maintBadge = document.getElementById('maintenance-badge');
+            if (!banner || !errorSpan || !maintBadge) return;
             if (isMaintenance) {
-                errorSpan.textContent = reason || "Lỗi không xác định.";
-                banner.classList.remove('hidden');
-                maintBadge.classList.remove('hidden');
-                document.querySelectorAll('button:not(#reset-maintenance-btn):not(#reload-btn), input, select').forEach(el => {
-                    if (!el.closest('#maintenance-banner')) el.disabled = true;
-                });
+                errorSpan.textContent = reason || "Lỗi?"; banner.classList.remove('hidden'); maintBadge.classList.remove('hidden');
+                document.querySelectorAll('button:not(#reset-maintenance-btn):not(#reload-btn), input, select').forEach(el => { if (!el.closest('#maintenance-banner')) el.disabled = true; });
                 let resetBtn = document.getElementById('reset-maintenance-btn');
                 if (!resetBtn) {
-                    resetBtn = document.createElement('button'); resetBtn.id = 'reset-maintenance-btn'; resetBtn.textContent = 'Reset Bảo Trì';
-                    resetBtn.className = 'ml-4 bg-yellow-500 text-black font-bold py-1 px-3 rounded-md text-sm hover:bg-yellow-600';
-                    resetBtn.onclick = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "reset_maintenance" })); addLog('warn', 'Gửi yêu cầu reset bảo trì...'); };
-                    banner.querySelector('button')?.parentNode.appendChild(resetBtn); // Thêm vào sau nút Reload
+                    resetBtn = document.createElement('button'); resetBtn.id = 'reset-maintenance-btn'; resetBtn.textContent = 'Reset Bảo Trì'; resetBtn.className = 'ml-4 bg-yellow-500 text-black font-bold py-1 px-3 rounded-md text-sm hover:bg-yellow-600';
+                    resetBtn.onclick = () => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "reset_maintenance" })); addLog('warn', 'Gửi reset bảo trì...'); };
+                    banner.querySelector('#reload-btn')?.parentNode.appendChild(resetBtn); // Thêm vào sau nút Reload
                 }
             } else {
-                banner.classList.add('hidden');
-                maintBadge.classList.add('hidden');
+                banner.classList.add('hidden'); maintBadge.classList.add('hidden');
                 document.querySelectorAll('button, input, select').forEach(el => el.disabled = false);
                 document.getElementById('reset-maintenance-btn')?.remove();
             }
         }
 
-
-        function showQrOverlay(text, bgColorClass) { /* ... */ } // Code không đổi
+        function showQrOverlay(text, bgColorClass) {
+            const overlay = document.getElementById("qr-overlay"); if (!overlay) return;
+            if (qrTimer) clearTimeout(qrTimer);
+            overlay.textContent = text; overlay.className = '';
+            overlay.classList.add('absolute', 'top-4', 'right-4', 'p-2', 'px-4', 'rounded-lg', 'text-xl', 'font-bold', 'text-white', 'opacity-0', 'transition-opacity', 'duration-500', 'shadow-lg');
+            overlay.classList.add(...bgColorClass.split(' '));
+            setTimeout(() => overlay.style.opacity = '1', 10);
+            qrTimer = setTimeout(() => { overlay.style.opacity = '0'; }, 2500);
+        }
 
         // ===== CÁC HÀM TƯƠNG TÁC =====
-        function _fetch(url, options = {}) { /* ... */ return fetch(url, options).then(response => response); } // Code không đổi
+        function _fetch(url, options = {}) { return fetch(url, options).then(response => response); }
 
-        // --- Trang Chủ ---
-        function resetCount(laneIndex) { /* ... */ ws.send(JSON.stringify({ action: "reset_count", lane_index: laneIndex })); } // Code không đổi
+        function resetCount(laneIndex) { if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Reset fail: No WS."); ws.send(JSON.stringify({ action: "reset_count", lane_index: laneIndex })); }
 
-        // --- Trang Cấu Hình ---
-        // (SỬA LỖI) Cập nhật loadConfig để gán giá trị đúng
         async function loadConfig() {
             try {
-                const res = await _fetch('/config'); // Dùng _fetch đã có sẵn
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-
-                // Gán giá trị vào input từ timing_config
+                const res = await _fetch('/config'); if (!res.ok) throw new Error(`HTTP ${res.status}`); const data = await res.json();
                 const cfg = data.timing_config || {};
-                document.getElementById('config-cycle_delay').value = cfg.cycle_delay ?? '';
-                document.getElementById('config-settle_delay').value = cfg.settle_delay ?? '';
-                document.getElementById('config-sensor_debounce').value = cfg.sensor_debounce ?? '';
-                document.getElementById('config-push_delay').value = cfg.push_delay ?? '';
+                document.getElementById('config-cycle_delay').value = cfg.cycle_delay ?? ''; document.getElementById('config-settle_delay').value = cfg.settle_delay ?? '';
+                document.getElementById('config-sensor_debounce').value = cfg.sensor_debounce ?? ''; document.getElementById('config-push_delay').value = cfg.push_delay ?? '';
                 document.getElementById('config-gpio_mode').value = cfg.gpio_mode || 'BCM';
-
-                // Hiển thị JSON đầy đủ (timing + lanes)
-                document.getElementById("config-json").textContent = JSON.stringify(data, null, 2);
-                addLog("success", "Đã tải cấu hình từ server.");
-
-            } catch (err) {
-                addLog("error", "Không thể tải cấu hình.");
-                console.error('Lỗi fetch /config:', err);
-            }
+                document.getElementById("config-json").textContent = JSON.stringify(data, null, 2); addLog("success", "Đã tải config.");
+            } catch (err) { addLog("error", "Không tải được config."); console.error('Lỗi /config:', err); }
         }
-
         function saveConfig() {
-            const newTimingConfig = {
-                cycle_delay: parseFloat(document.getElementById('config-cycle_delay').value) || 0,
-                settle_delay: parseFloat(document.getElementById('config-settle_delay').value) || 0,
-                sensor_debounce: parseFloat(document.getElementById('config-sensor_debounce').value) || 0,
-                push_delay: parseFloat(document.getElementById('config-push_delay').value) || 0,
+            const cfg = {
+                cycle_delay: parseFloat(document.getElementById('config-cycle_delay').value) || 0, settle_delay: parseFloat(document.getElementById('config-settle_delay').value) || 0,
+                sensor_debounce: parseFloat(document.getElementById('config-sensor_debounce').value) || 0, push_delay: parseFloat(document.getElementById('config-push_delay').value) || 0,
                 gpio_mode: document.getElementById('config-gpio_mode').value || 'BCM'
             };
-            const payload = { timing_config: newTimingConfig };
-
-            _fetch("/update_config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
-                .then(res => { if (!res.ok) throw new Error(`Lỗi server: ${res.status}`); return res.json(); })
-                .then(data => {
-                    addLog(data.restart_required ? "warn" : "success", data.message || "Lưu config thành công.");
-                    document.getElementById("config-json").textContent = JSON.stringify(data.config, null, 2);
-                    if (data.config?.timing_config) {
-                        const serverCfg = data.config.timing_config;
-                        document.getElementById('config-cycle_delay').value = serverCfg.cycle_delay ?? '';
-                        document.getElementById('config-settle_delay').value = serverCfg.settle_delay ?? '';
-                        document.getElementById('config-sensor_debounce').value = serverCfg.sensor_debounce ?? '';
-                        document.getElementById('config-push_delay').value = serverCfg.push_delay ?? '';
-                        document.getElementById('config-gpio_mode').value = serverCfg.gpio_mode || 'BCM';
-                    }
-                })
-                .catch(err => { addLog("error", `Không thể lưu config: ${err.message}`); });
+            _fetch("/update_config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timing_config: cfg }) })
+                .then(res => { if (!res.ok) throw new Error(`Lỗi ${res.status}`); return res.json(); })
+                .then(data => { addLog(data.restart_required ? "warn" : "success", data.message || "Lưu OK."); document.getElementById("config-json").textContent = JSON.stringify(data.config, null, 2); if (data.config?.timing_config) { const sCfg = data.config.timing_config; document.getElementById('config-cycle_delay').value = sCfg.cycle_delay ?? ''; document.getElementById('config-settle_delay').value = sCfg.settle_delay ?? ''; document.getElementById('config-sensor_debounce').value = sCfg.sensor_debounce ?? ''; document.getElementById('config-push_delay').value = sCfg.push_delay ?? ''; document.getElementById('config-gpio_mode').value = sCfg.gpio_mode || 'BCM'; } })
+                .catch(err => { addLog("error", `Lưu config thất bại: ${err.message}`); });
         }
 
-        // --- Trang Test ---
-        function testRelay(laneIndex, action) { if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test thất bại: Mất kết nối WS."); ws.send(JSON.stringify({ action: "test_relay", lane_index: laneIndex, relay_action: action })); addLog("info", `Test ${action.toUpperCase()} Lane ${laneIndex + 1}...`); }
-        function testAllRelays() { if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test thất bại: Mất kết nối WS."); ws.send(JSON.stringify({ action: "test_all_relays" })); addLog("info", "Đang test tuần tự..."); }
+        // --- Test Page ---
+        function testRelay(laneIndex, action) { if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test fail: No WS."); ws.send(JSON.stringify({ action: "test_relay", lane_index: laneIndex, relay_action: action })); addLog("info", `Test ${action.toUpperCase()} L${laneIndex + 1}...`); }
+        function testAllRelays() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test fail: No WS.");
+            ws.send(JSON.stringify({ action: "test_all_relays" }));
+            addLog("info", "Bắt đầu test tuần tự...");
+            document.getElementById('test-all-btn').disabled = true; document.getElementById('stop-test-btn').classList.remove('hidden');
+        }
+        function stopAllTests() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Stop fail: No WS.");
+            ws.send(JSON.stringify({ action: "stop_tests" })); addLog("warn", "Gửi lệnh dừng test...");
+        }
         function toggleAutoTest() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test thất bại: Mất kết nối WS.");
+            if (!ws || ws.readyState !== WebSocket.OPEN) return addLog("error", "Test fail: No WS.");
             autoTestEnabled = !autoTestEnabled; ws.send(JSON.stringify({ action: "toggle_auto_test", enabled: autoTestEnabled }));
             const btn = document.getElementById("toggle-auto-test");
             if (autoTestEnabled) { btn.textContent = "🛑 Tắt Auto Test"; btn.className = btn.className.replace('blue', 'red'); addLog("warn", "ĐÃ BẬT Auto-Test."); }
             else { btn.textContent = "🔄 Bật Auto Test"; btn.className = btn.className.replace('red', 'blue'); addLog("info", "Đã tắt Auto-Test."); }
         }
 
-        // --- Vẽ Biểu Đồ ---
+        // --- Chart ---
         function loadSortChart() {
             _fetch("/api/sort_log")
                 .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
@@ -708,17 +695,17 @@
         function renderCharts(data) {
             const today = new Date().toISOString().split('T')[0];
             const days = Object.keys(data).sort().slice(-7); const labels = days;
-            let laneNames = ["Loại 1", "Loại 2", "Loại 3"];
-            try { const stateLanes = JSON.parse(document.getElementById('config-json').textContent || '{}')?.lanes_config; if (Array.isArray(stateLanes) && stateLanes.length > 0) { laneNames = stateLanes.map(ln => ln.name || 'Unknown'); } } catch { }
+            let laneNames = ["L1", "L2", "L3"];
+            try { const stateLanes = system_state?.lanes; if (Array.isArray(stateLanes) && stateLanes.length > 0) { laneNames = stateLanes.map(ln => ln.name || '?'); } else { const cfgLanes = JSON.parse(document.getElementById('config-json')?.textContent || '{}')?.lanes_config; if (Array.isArray(cfgLanes) && cfgLanes.length > 0) laneNames = cfgLanes.map(ln => ln.name || '?'); } } catch { }
             const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#a855f7', '#ec4899'];
             const datasets = laneNames.map((name, i) => ({ label: name, data: labels.map(day => data[day]?.[name] || 0), backgroundColor: colors[i % colors.length], }));
             const todayData = data[today] || {}; const doughnutData = laneNames.map(name => todayData[name] || 0); const totalToday = doughnutData.reduce((a, b) => a + b, 0);
-            // Bar Chart
+            // Bar
             const ctxBar = document.getElementById('sort-chart-bar')?.getContext('2d'); if (!ctxBar) return; if (sortBarChart) sortBarChart.destroy();
-            sortBarChart = new Chart(ctxBar, { type: 'bar', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true, ticks: { color: '#9ca3af' } }, y: { stacked: true, beginAtZero: true, ticks: { color: '#9ca3af', stepSize: 1 } } }, plugins: { legend: { labels: { color: '#d1d5db' } }, title: { display: true, text: 'Sản Lượng 7 Ngày Gần Nhất', color: '#fff' } } } });
-            // Doughnut Chart
+            sortBarChart = new Chart(ctxBar, { type: 'bar', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true, ticks: { color: '#9ca3af' } }, y: { stacked: true, beginAtZero: true, ticks: { color: '#9ca3af', stepSize: 1 } } }, plugins: { legend: { labels: { color: '#d1d5db' } }, title: { display: true, text: 'Sản Lượng 7 Ngày', color: '#fff' } } } });
+            // Doughnut
             const ctxDoughnut = document.getElementById('sort-chart-doughnut')?.getContext('2d'); if (!ctxDoughnut) return; if (sortDoughnutChart) sortDoughnutChart.destroy();
-            sortDoughnutChart = new Chart(ctxDoughnut, { type: 'doughnut', data: { labels: laneNames, datasets: [{ data: doughnutData, backgroundColor: colors.slice(0, laneNames.length), borderColor: '#4b5563' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#d1d5db' } }, title: { display: true, text: `Hôm Nay (Tổng: ${totalToday})`, color: '#fff' } } } });
+            sortDoughnutChart = new Chart(ctxDoughnut, { type: 'doughnut', data: { labels: laneNames, datasets: [{ data: doughnutData, backgroundColor: colors.slice(0, laneNames.length), borderColor: '#4b5563' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#d1d5db' } }, title: { display: true, text: `Hôm Nay (${totalToday})`, color: '#fff' } } } });
         }
 
     </script>

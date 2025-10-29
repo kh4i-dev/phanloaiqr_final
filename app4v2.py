@@ -71,6 +71,7 @@ class MockGPIO(GPIOProvider):
         self.IN = "mock_IN"
         self.HIGH = 1
         self.LOW = 0
+        self.input_pins = set()
         self.PUD_UP = "mock_PUD_UP"
         self.pin_states = {} # Giả lập trạng thái pin
         logging.warning("="*50)
@@ -85,6 +86,7 @@ class MockGPIO(GPIOProvider):
             self.pin_states[pin] = self.LOW # Mặc định là LOW
         else: # IN
             self.pin_states[pin] = self.HIGH # Mặc định là HIGH (do PUD_UP)
+            self.input_pins.add(pin)
     def output(self, pin, value):
         logging.info(f"[MOCK] output pin {pin}={value}")
         self.pin_states[pin] = value
@@ -93,6 +95,24 @@ class MockGPIO(GPIOProvider):
         val = self.pin_states.get(pin, self.HIGH)
         # logging.info(f"[MOCK] input pin {pin} -> {val}")
         return val
+    def set_input_state(self, pin, logical_state):
+        """Đặt trạng thái chân input (0 hoặc 1)."""
+        if pin not in self.input_pins:
+            logging.info(f"[MOCK] Tự động thêm chân input {pin}.")
+            self.input_pins.add(pin)
+        state = self.HIGH if logical_state else self.LOW
+        self.pin_states[pin] = state
+        logging.info(f"[MOCK] set_input_state pin {pin} -> {state}")
+        return state
+    def toggle_input_state(self, pin):
+        """Đảo trạng thái chân input và trả về giá trị mới (0/1)."""
+        if pin not in self.input_pins:
+            self.input_pins.add(pin)
+        current = self.input(pin)
+        new_state = self.LOW if current == self.HIGH else self.HIGH
+        self.pin_states[pin] = new_state
+        logging.info(f"[MOCK] toggle_input_state pin {pin} -> {new_state}")
+        return 0 if new_state == self.LOW else 1
     def cleanup(self): logging.info("[MOCK] cleanup GPIO")
 
 def get_gpio_provider():
@@ -145,9 +165,10 @@ LOG_FILE = 'system.log'
 SORT_LOG_FILE = 'sort_log.json'
 ACTIVE_LOW = True
 
-# (MỚI) Thông tin đăng nhập
-USERNAME = "admin"
-PASSWORD = "123" # Đổi mật khẩu này!
+# (MỚI) Thông tin đăng nhập (có thể tắt hoàn toàn qua biến môi trường)
+AUTH_ENABLED = os.environ.get("APP_AUTH_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+USERNAME = os.environ.get("APP_USERNAME", "admin")
+PASSWORD = os.environ.get("APP_PASSWORD", "123")
 
 # =============================
 #      KHỞI TẠO CÁC ĐỐI TƯỢNG
@@ -203,6 +224,7 @@ system_state = {
     },
     "is_mock": isinstance(GPIO, MockGPIO),
     "maintenance_mode": False,
+    "auth_enabled": AUTH_ENABLED,
     "gpio_mode": "BCM",
     "last_error": None # (MỚI) Thêm last_error vào state
 }
@@ -309,6 +331,8 @@ def load_local_config():
         system_state['timing_config'] = loaded_config['timing_config']
         system_state['gpio_mode'] = loaded_config['timing_config'].get("gpio_mode", "BCM")
         system_state['lanes'] = new_system_lanes # Ghi đè lanes cũ
+        system_state['auth_enabled'] = AUTH_ENABLED
+        system_state['is_mock'] = isinstance(GPIO, MockGPIO)
     logging.info(f"[CONFIG] Loaded {num_lanes} lanes config.")
     logging.info(f"[CONFIG] Loaded timing config: {system_state['timing_config']}")
 
@@ -699,16 +723,29 @@ app = Flask(__name__)
 from flask_sock import Sock
 sock = Sock(app)
 connected_clients = set()
+clients_lock = threading.Lock()
+
+def _add_client(ws):
+    with clients_lock:
+        connected_clients.add(ws)
+
+def _remove_client(ws):
+    with clients_lock:
+        connected_clients.discard(ws)
+
+def _list_clients():
+    with clients_lock:
+        return list(connected_clients)
 
 def broadcast_log(log_data):
     """Gửi 1 tin nhắn log cụ thể cho client."""
     log_data['timestamp'] = time.strftime('%H:%M:%S')
     msg = json.dumps({"type": "log", **log_data})
-    for client in list(connected_clients):
+    for client in _list_clients():
         try:
             client.send(msg)
         except Exception:
-            connected_clients.remove(client)
+            _remove_client(client)
 
 # =============================
 #      CÁC HÀM XỬ LÝ TEST (🧪)
@@ -866,18 +903,22 @@ def auto_test_loop():
 # =============================
 def check_auth(username, password):
     """Kiểm tra username và password."""
+    if not AUTH_ENABLED:
+        return True
     return username == USERNAME and password == PASSWORD
 
 def authenticate():
     """Gửi phản hồi 401 (Yêu cầu đăng nhập)."""
     return Response(
-    'Yêu cầu đăng nhập.', 401,
-    {'WWW-Authenticate': 'Basic realm="Login Required"'})
+        'Yêu cầu đăng nhập.', 401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 def requires_auth(f):
     """Decorator để yêu cầu đăng nhập cho một route."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        if not AUTH_ENABLED:
+            return f(*args, **kwargs)
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
             return authenticate()
@@ -895,18 +936,19 @@ def broadcast_state():
             # Cập nhật trạng thái bảo trì và lỗi cuối
             system_state["maintenance_mode"] = error_manager.is_maintenance()
             system_state["last_error"] = error_manager.last_error
+            system_state["is_mock"] = isinstance(GPIO, MockGPIO)
+            system_state["auth_enabled"] = AUTH_ENABLED
             # Cập nhật chế độ gpio từ timing_config
             system_state["gpio_mode"] = system_state['timing_config'].get('gpio_mode', 'BCM')
             current_msg = json.dumps({"type": "state_update", "state": system_state})
 
         if current_msg != last_state_str:
-            for client in list(connected_clients):
+            for client in _list_clients():
                 try:
                     client.send(current_msg)
                 except Exception:
                     # Gỡ client lỗi ra khỏi danh sách
-                    if client in connected_clients:
-                         connected_clients.remove(client)
+                    _remove_client(client)
             last_state_str = current_msg
 
         time.sleep(0.5)
@@ -1118,7 +1160,59 @@ def reset_maintenance():
     else:
         return jsonify({"message": "Hệ thống không ở chế độ bảo trì."})
 
+@app.route('/api/mock_gpio', methods=['POST'])
+@requires_auth
+def api_mock_gpio():
+    """API (POST) để điều khiển sensor ở chế độ giả lập."""
+    if not isinstance(GPIO, MockGPIO):
+        return jsonify({"error": "Chức năng chỉ khả dụng ở chế độ mô phỏng."}), 400
 
+    payload = request.get_json(silent=True) or {}
+    lane_index = payload.get('lane_index')
+    pin = payload.get('pin')
+    requested_state = payload.get('state')
+
+    if lane_index is not None and pin is None:
+        try:
+            lane_index = int(lane_index)
+        except (TypeError, ValueError):
+            return jsonify({"error": "lane_index không hợp lệ."}), 400
+        with state_lock:
+            if 0 <= lane_index < len(system_state['lanes']):
+                pin = system_state['lanes'][lane_index].get('sensor_pin')
+            else:
+                return jsonify({"error": "lane_index vượt ngoài phạm vi."}), 400
+
+    if pin is None:
+        return jsonify({"error": "Thiếu thông tin chân sensor."}), 400
+
+    try:
+        pin = int(pin)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Giá trị pin không hợp lệ."}), 400
+
+    if requested_state is None:
+        logical_state = GPIO.toggle_input_state(pin)
+    else:
+        logical_state = 1 if str(requested_state).strip().lower() in {"1", "true", "high", "inactive"} else 0
+        GPIO.set_input_state(pin, logical_state)
+
+    lane_name = None
+    with state_lock:
+        for lane in system_state['lanes']:
+            if lane.get('sensor_pin') == pin:
+                lane['sensor_reading'] = 0 if logical_state == 0 else 1
+                lane_name = lane.get('name', lane_name)
+
+    state_label = 'ACTIVE (LOW)' if logical_state == 0 else 'INACTIVE (HIGH)'
+    message = f"[MOCK] Sensor pin {pin} -> {state_label}"
+    if lane_name:
+        message += f" ({lane_name})"
+    broadcast_log({
+        "log_type": "info",
+        "message": message
+    })
+    return jsonify({"pin": pin, "state": logical_state, "lane": lane_name})
 @sock.route('/ws')
 @requires_auth
 def ws_route(ws):
@@ -1126,25 +1220,27 @@ def ws_route(ws):
     global AUTO_TEST_ENABLED
 
     # Kiểm tra xác thực một lần nữa (đề phòng)
-    auth = request.authorization
-    if not auth or not check_auth(auth.username, auth.password):
-        logging.warning(f"[WS] Unauthorized connection attempt.")
+    auth = request.authorization if AUTH_ENABLED else None
+    if AUTH_ENABLED and (not auth or not check_auth(auth.username, auth.password)):
+        logging.warning("[WS] Unauthorized connection attempt.")
         ws.close(code=1008, reason="Unauthorized") # Gửi mã lỗi 1008
         return
 
-    connected_clients.add(ws)
-    logging.info(f"[WS] Client {auth.username} connected. Total: {len(connected_clients)}")
+    client_label = auth.username if auth else f"guest-{id(ws):x}"
+    _add_client(ws)
+    logging.info(f"[WS] Client {client_label} connected. Total: {len(_list_clients())}")
 
     # 1. Gửi state ban đầu
     try:
         with state_lock:
             system_state["maintenance_mode"] = error_manager.is_maintenance()
             system_state["last_error"] = error_manager.last_error
+            system_state["auth_enabled"] = AUTH_ENABLED
             initial_state_msg = json.dumps({"type": "state_update", "state": system_state})
         ws.send(initial_state_msg)
     except Exception as e:
         logging.warning(f"[WS] Lỗi gửi state ban đầu: {e}")
-        if ws in connected_clients: connected_clients.remove(ws)
+        _remove_client(ws)
         return
 
     # 2. Lắng nghe message
@@ -1167,10 +1263,9 @@ def ws_route(ws):
                             if lane_idx == 'all':
                                 for i in range(len(system_state['lanes'])):
                                     system_state['lanes'][i]['count'] = 0
-                                broadcast_log({"log_type": "info", "message": f"{auth.username} đã reset đếm toàn bộ."})
+                                broadcast_log({"log_type": "info", "message": f"{client_label} đã reset đếm toàn bộ."})
                             elif lane_idx is not None and 0 <= lane_idx < len(system_state['lanes']):
-                                broadcast_log({"log_type": "info", "message": f"{auth.username} đã reset đếm {system_state['lanes'][lane_idx]['name']}."})
-                                system_state['lanes'][lane_idx]['count'] = 0
+                                broadcast_log({"log_type": "info", "message": f"{client_label} đã reset đếm {system_state['lanes'][lane_idx]['name']}."})
 
                     # 2. Cập nhật Config (Qua WebSocket - Dự phòng)
                     elif action == 'update_config':
@@ -1194,9 +1289,8 @@ def ws_route(ws):
                     # 5. Bật/Tắt Auto-Test
                     elif action == "toggle_auto_test":
                         AUTO_TEST_ENABLED = data.get("enabled", False)
-                        logging.info(f"[TEST] Auto-Test (Sensor->Relay) set by {auth.username} to: {AUTO_TEST_ENABLED}")
-                        broadcast_log({"log_type": "warn", "message": f"Chế độ Auto-Test đã { 'BẬT' if AUTO_TEST_ENABLED else 'TẮT' } bởi {auth.username}."})
-
+                        logging.info(f"[TEST] Auto-Test (Sensor->Relay) set by {client_label} to: {AUTO_TEST_ENABLED}")
+                        broadcast_log({"log_type": "warn", "message": f"Chế độ Auto-Test đã { 'BẬT' if AUTO_TEST_ENABLED else 'TẮT' } bởi {client_label}."})
                         if not AUTO_TEST_ENABLED:
                              reset_all_relays_to_default()
 
@@ -1204,7 +1298,7 @@ def ws_route(ws):
                     elif action == "reset_maintenance":
                          if error_manager.is_maintenance():
                              error_manager.reset()
-                             broadcast_log({"log_type": "success", "message": f"Chế độ bảo trì đã được reset bởi {auth.username}."})
+                             broadcast_log({"log_type": "success", "message": f"Chế độ bảo trì đã được reset bởi {client_label}."})
                          else:
                              broadcast_log({"log_type": "info", "message": "Hệ thống không ở chế độ bảo trì."})
 
@@ -1218,10 +1312,8 @@ def ws_route(ws):
     except Exception as ws_conn_e: # Bắt lỗi kết nối WebSocket
          logging.warning(f"[WS] Kết nối WebSocket bị đóng hoặc lỗi: {ws_conn_e}")
     finally:
-        if ws in connected_clients:
-            connected_clients.remove(ws)
-        logging.info(f"[WS] Client {auth.username} disconnected. Total: {len(connected_clients)}")
-
+        _remove_client(ws)
+        logging.info(f"[WS] Client {client_label} disconnected. Total: {len(_list_clients())}")
 # =============================
 #               MAIN
 # =============================
@@ -1278,7 +1370,10 @@ if __name__ == "__main__":
         logging.info(f"  Log file: {LOG_FILE}")
         logging.info(f"  Sort log file: {SORT_LOG_FILE}")
         logging.info(f"  API State: http://<IP_CUA_PI>:5000/api/state")
-        logging.info(f"  Truy cập: http://<IP_CUA_PI>:5000 (User: {USERNAME} / Pass: {PASSWORD})")
+        if AUTH_ENABLED:
+            logging.info(f"  Truy cập: http://<IP_CUA_PI>:5000 (User: {USERNAME} / Pass: {PASSWORD})")
+        else:
+            logging.info("  Truy cập: http://<IP_CUA_PI>:5000 (không yêu cầu đăng nhập)")
         logging.info("=========================================")
         # Chạy Flask server
         app.run(host='0.0.0.0', port=5000)

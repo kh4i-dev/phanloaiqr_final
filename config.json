@@ -8,19 +8,19 @@
     },
     "lanes_config": [
         {
-            "name": "Lo\u00e1\u00ba\u00a1i 1",
+            "name": "Lo\u00c3\u0192\u00c2\u00a1\u00c3\u201a\u00c2\u00ba\u00c3\u201a\u00c2\u00a1i 1",
             "sensor_pin": 3,
             "push_pin": 17,
             "pull_pin": 18
         },
         {
-            "name": "Lo\u00e1\u00ba\u00a1i 2",
+            "name": "Lo\u00c3\u0192\u00c2\u00a1\u00c3\u201a\u00c2\u00ba\u00c3\u201a\u00c2\u00a1i 2",
             "sensor_pin": 23,
             "push_pin": 27,
             "pull_pin": 14
         },
         {
-            "name": "Lo\u00e1\u00ba\u00a1i 3",
+            "name": "Lo\u00c3\u0192\u00c2\u00a1\u00c3\u201a\u00c2\u00ba\u00c3\u201a\u00c2\u00a1i 3",
             "sensor_pin": 24,
             "push_pin": 22,
             "pull_pin": 4
