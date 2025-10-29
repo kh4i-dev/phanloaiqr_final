@@ -1,8 +1,29 @@
 {
-  "timing_config": {
-    "cycle_delay": 0.3,
-    "settle_delay": 0.2,
-    "sensor_debounce": 0.1,
-    "push_delay": 0.5
-  }
+    "timing_config": {
+        "cycle_delay": 0.3,
+        "settle_delay": 0.2,
+        "sensor_debounce": 0.1,
+        "push_delay": 0.0,
+        "gpio_mode": "BCM"
+    },
+    "lanes_config": [
+        {
+            "name": "Lo\u00e1\u00ba\u00a1i 1",
+            "sensor_pin": 3,
+            "push_pin": 17,
+            "pull_pin": 18
+        },
+        {
+            "name": "Lo\u00e1\u00ba\u00a1i 2",
+            "sensor_pin": 23,
+            "push_pin": 27,
+            "pull_pin": 14
+        },
+        {
+            "name": "Lo\u00e1\u00ba\u00a1i 3",
+            "sensor_pin": 24,
+            "push_pin": 22,
+            "pull_pin": 4
+        }
+    ]
 }

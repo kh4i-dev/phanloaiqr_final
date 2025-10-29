@@ -4,11 +4,12 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hệ Thống Phân Loại (Nâng Cấp)</title>
+    <title>Hệ Thống Phân Loại (Nâng Cấp v2)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- (NÂNG CẤP 5) Thêm thư viện Chart.js -->
+    <!-- (MỚI) Thêm Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ... (Phần CSS đã được thu gọn để tập trung vào HTML) ... */
         body {
             font-family: Inter, sans-serif;
         }
@@ -79,28 +80,6 @@
             animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
 
-        /* (NÂNG CẤP 2) Banner Bảo trì */
-        @keyframes blink {
-
-            0%,
-            100% {
-                background-color: #b91c1c;
-            }
-
-            /* red-700 */
-            50% {
-                background-color: #dc2626;
-            }
-
-            /* red-600 */
-        }
-
-        #maintenance-banner {
-            animation: blink 1s infinite;
-            z-index: 1000;
-        }
-
-        /* CSS Tinh Chỉnh Sidebar Gọn */
         #sidebar.expanded {
             box-shadow: 4px 0 8px rgba(0, 0, 0, 0.5);
         }
@@ -109,30 +88,37 @@
             transition: background 0.2s ease, transform 0.3s ease;
         }
 
+        /* (SỬA) Tăng kích thước khi hover */
         #sidebar-toggle:hover {
-            transform: scale(1.1) translateY(-50%);
+            transform: scale(1.05) translateY(-50%);
         }
+
+        #confirm-modal {
+            transition: opacity 0.2s ease-in-out;
+        }
+
+        #confirm-modal-content {
+            transition: transform 0.2s ease-in-out;
+        }
+
+        /* (XÓA) Xóa CSS cuộn mượt */
+        /* html {
+      scroll-behavior: smooth;
+    } */
     </style>
 </head>
 
 <body class="bg-gray-900 text-gray-200 flex h-screen overflow-hidden">
 
-    <!-- (NÂNG CẤP 2) BANNER BẢO TRÌ (ẩn mặc định) -->
-    <div id="maintenance-banner"
-        class="hidden fixed top-0 left-0 w-full p-2 text-white text-center font-bold shadow-lg">
-        ⚠️ HỆ THỐNG ĐANG Ở CHẾ ĐỘ BẢO TRÌ DO LỖI NGHIÊM TRỌNG. VUI LÒNG KIỂM TRA LOG VÀ KHỞI ĐỘNG LẠI.
-    </div>
-
     <!-- ===== SIDEBAR SIÊU GỌN (vạch dọc + nút giữa) ===== -->
     <aside id="sidebar"
         class="fixed left-0 top-0 h-full bg-gray-800 transition-all duration-300 ease-in-out shadow-lg overflow-hidden w-[6px] flex flex-col items-center z-30">
 
-        <!-- Nút Toggle (bé xíu, giữa màn hình) -->
+        <!-- (SỬA) Nút Toggle (TO GẤP ĐÔI) -->
         <button id="sidebar-toggle" onclick="toggleSidebar()"
-            class="absolute top-1/2 -right-[12px] transform -translate-y-1/2 w-6 h-10 rounded-r-md bg-gray-700 hover:bg-gray-600 text-white flex items-center justify-center shadow-md transition-all duration-300">
-            <svg id="toggle-icon" xmlns="http://www.w3.org/2000/svg"
-                class="h-3.5 w-3.5 transition-transform duration-300" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
+            class="absolute top-1/2 -right-[24px] transform -translate-y-1/2 w-12 h-20 rounded-r-md bg-gray-700 hover:bg-gray-600 text-white flex items-center justify-center shadow-md transition-all duration-300">
+            <svg id="toggle-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 transition-transform duration-300"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
         </button>
@@ -143,17 +129,20 @@
             <div class="p-4 flex items-center justify-between border-b border-gray-700" style="min-width: 14rem;">
                 <span class="text-2xl">🤖</span>
                 <h1 class="text-xl font-bold text-white">Hệ Thống</h1>
+                <!-- Badges (Huy hiệu) -->
+                <div class="space-x-2">
+                    <span id="mock-badge"
+                        class="hidden text-xs font-semibold bg-yellow-500 text-black px-2 py-0.5 rounded-full">MOCK</span>
+                    <span id="maintenance-badge"
+                        class="hidden text-xs font-semibold bg-red-600 text-white px-2 py-0.5 rounded-full">BẢO
+                        TRÌ</span>
+                </div>
             </div>
 
             <nav class="flex-1 p-4 space-y-2">
                 <a href="#" onclick="showPage('home')" id="nav-home"
                     class="nav-button flex items-center p-2 rounded-lg text-gray-300 hover:bg-gray-700 active">
                     <span class="ml-2">🏠 Trang Chủ</span>
-                </a>
-                <!-- (NÂNG CẤP 5) Thêm tab Thống Kê -->
-                <a href="#" onclick="showPage('stats')" id="nav-stats"
-                    class="nav-button flex items-center p-2 rounded-lg text-gray-300 hover:bg-gray-700">
-                    <span class="ml-2">📊 Thống Kê</span>
                 </a>
                 <a href="#" onclick="showPage('config')" id="nav-config"
                     class="nav-button flex items-center p-2 rounded-lg text-gray-300 hover:bg-gray-700">
@@ -162,6 +151,11 @@
                 <a href="#" onclick="showPage('test')" id="nav-test"
                     class="nav-button flex items-center p-2 rounded-lg text-gray-300 hover:bg-gray-700">
                     <span class="ml-2">🧪 Kiểm Tra</span>
+                </a>
+                <!-- (SỬA) Đổi lại thành showPage -->
+                <a href="#" onclick="showPage('stats')" id="nav-stats"
+                    class="nav-button flex items-center p-2 rounded-lg text-gray-300 hover:bg-gray-700">
+                    <span class="ml-2">📊 Thống Kê</span>
                 </a>
             </nav>
 
@@ -174,14 +168,28 @@
     <!-- ===== NỘI DUNG CHÍNH ===== -->
     <main id="main-content"
         class="flex-1 p-4 md:p-6 overflow-auto bg-gray-900 transition-all duration-300 ease-in-out ml-2">
+        <!-- Banner Bảo trì -->
+        <div id="maintenance-banner"
+            class="hidden fixed top-0 left-0 w-full bg-red-700 text-white p-3 text-center z-50 shadow-lg">
+            <div class="flex items-center justify-center">
+                <span class="text-lg font-bold">⚠️ HỆ THỐNG ĐANG BẢO TRÌ: <span id="maintenance-error"
+                        class="font-normal">...</span></span>
+                <button onclick="window.location.reload()"
+                    class="ml-4 bg-white text-red-700 font-bold py-1 px-3 rounded-md text-sm hover:bg-gray-200">
+                    Tải Lại Trang
+                </button>
+            </div>
+        </div>
+
         <h1 class="text-2xl font-bold text-center mb-4 text-white">Bảng Điều Khiển Hệ Thống Phân Loại</h1>
 
         <!-- Trang Chủ -->
-        <div id="page-home">
-            <!-- ... (Giữ nguyên layout trang chủ) ... -->
+        <div id="page-home" class="space-y-4">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <!-- Cột Trái: Camera, Logs -->
                 <div class="lg:col-span-2 flex flex-col space-y-4">
-                    <div class="bg-gray-800 p-3 rounded-lg shadow-lg flex-1">
+                    <!-- Card Camera -->
+                    <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
                         <h2 class="text-lg font-semibold mb-2 text-white flex items-center">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor">
@@ -191,18 +199,20 @@
                             Camera Giám Sát
                         </h2>
                         <div class="bg-black rounded-md overflow-hidden aspect-video relative">
-                            <img id="video_feed" src="/video_feed" class="w-full h-full object-cover"
-                                alt="Camera Feed" />
+                            <img id="video_feed" src="" class="w-full h-full object-cover" alt="Camera Feed" />
                             <div id="qr-overlay" style="opacity: 0;"></div>
                         </div>
                     </div>
-                    <div class="bg-gray-800 p-3 rounded-lg shadow-lg flex-1">
+                    <!-- Card Logs -->
+                    <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
                         <h2 class="text-lg font-semibold mb-2 text-white">🧾 Logs Hệ Thống</h2>
                         <div id="log-container"
-                            class="h-64 md:h-80 lg:h-96 bg-gray-900 rounded-md p-2 overflow-y-auto text-xs font-mono space-y-1">
+                            class="h-64 md:h-80 bg-gray-900 rounded-md p-2 overflow-y-auto text-xs font-mono space-y-1">
                         </div>
                     </div>
                 </div>
+
+                <!-- Cột Phải: Lanes -->
                 <div class="lg:col-span-1 space-y-3">
                     <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
                         <h2 class="text-lg font-semibold mb-3 text-white">⚙️ Trạng Thái Lanes</h2>
@@ -210,7 +220,7 @@
                             <!-- Lane 1 -->
                             <div id="lane-0" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1">
-                                    <span class="font-bold">Loại 1</span>
+                                    <span id="lane-0-name" class="font-bold">Loại 1</span>
                                     <span id="status-text-0"
                                         class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
                                         sàng</span>
@@ -232,7 +242,7 @@
                             <!-- Lane 2 -->
                             <div id="lane-1" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1">
-                                    <span class="font-bold">Loại 2</span>
+                                    <span id="lane-1-name" class="font-bold">Loại 2</span>
                                     <span id="status-text-1"
                                         class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
                                         sàng</span>
@@ -254,7 +264,7 @@
                             <!-- Lane 3 -->
                             <div id="lane-2" class="border border-gray-700 p-3 rounded-md">
                                 <div class="flex justify-between items-center mb-1">
-                                    <span class="font-bold">Loại 3</span>
+                                    <span id="lane-2-name" class="font-bold">Loại 3</span>
                                     <span id="status-text-2"
                                         class="text-xs px-2 py-1 rounded-full bg-gray-700 transition-all">Sẵn
                                         sàng</span>
@@ -274,83 +284,76 @@
                                 </div>
                             </div>
                         </div>
-                        <button onclick="resetCount('all')"
-                            class="mt-3 w-full bg-red-600 hover:bg-red-700 text-white py-1.5 px-2 rounded text-sm font-medium">Reset
-                            Toàn Bộ</button>
+                        <button
+                            onclick="showConfirmModal('Bạn có chắc muốn reset đếm toàn bộ?', () => resetCount('all'))"
+                            class="mt-3 w-full bg-red-600 hover:bg-red-700 text-white py-1.5 px-2 rounded text-sm font-medium">
+                            Reset Toàn Bộ
+                        </button>
                     </div>
                 </div>
             </div>
-        </div> <!-- /#page-home -->
 
-        <!-- (NÂNG CẤP 5) Trang Thống Kê Mới -->
-        <div id="page-stats" class="hidden">
-            <div class="max-w-4xl mx-auto bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                <h2 class="text-2xl font-semibold text-white mb-4 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    Thống Kê Sản Lượng
-                </h2>
-                <div class="bg-gray-900 p-4 rounded-lg">
-                    <p class="text-sm text-gray-400 mb-2">Biểu đồ hiển thị tổng sản lượng (tất cả các loại) theo ngày.
-                    </p>
-                    <canvas id="sortChart" class="w-full" height="150"></canvas>
-                </div>
-            </div>
-        </div> <!-- /#page-stats -->
+            <!-- (XÓA) Xóa Card Thống Kê khỏi Trang Chủ -->
+            <!-- <div id="stats-card" class="bg-gray-800 p-3 rounded-lg shadow-lg"> ... </div> -->
+
+        </div> <!-- /#page-home -->
 
         <!-- Trang Cấu Hình (ẩn mặc định) -->
         <div id="page-config" class="hidden">
             <div class="max-w-3xl mx-auto bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                <h2 class="text-2xl font-semibold text-white mb-4 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Cấu Hình Timing (s)
-                </h2>
-                <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-3 rounded-md mb-4 text-sm">
-                    <b>Lưu ý:</b> Cần đăng nhập (Basic Auth) để Tải hoặc Lưu cấu hình. Trình duyệt sẽ tự động hỏi bạn.
-                    (admin / raspberry)
+                <h2 class="text-2xl font-semibold text-white mb-4">⚙️ Cấu Hình Hệ Thống</h2>
+                <!-- Cấu hình Timing -->
+                <div class="bg-gray-900 p-4 rounded-lg mb-4">
+                    <h3 class="text-lg font-semibold text-gray-300 mb-3">Cấu Hình Timing (s)</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="config-cycle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
+                                gian đẩy (cycle_delay)</label>
+                            <input type="number" step="0.05" id="config-cycle_delay"
+                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="config-settle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời
+                                gian chờ (settle_delay)</label>
+                            <input type="number" step="0.05" id="config-settle_delay"
+                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="config-sensor_debounce"
+                                class="block text-sm font-medium text-gray-400 mb-1">Chống nhiễu sensor
+                                (sensor_debounce)</label>
+                            <input type="number" step="0.05" id="config-sensor_debounce"
+                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="config-push_delay" class="block text-sm font-medium text-gray-400 mb-1">Trễ đẩy
+                                sensor (push_delay)</label>
+                            <input type="number" step="0.05" id="config-push_delay"
+                                class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                    </div>
+                </div>
+                <!-- Cấu hình GPIO -->
+                <div class="bg-gray-900 p-4 rounded-lg mb-4">
+                    <h3 class="text-lg font-semibold text-gray-300 mb-3">Cấu Hình Chân Cắm (GPIO)</h3>
+                    <div>
+                        <label for="config-gpio_mode" class="block text-sm font-medium text-gray-400 mb-1">Chế độ chân
+                            (gpio_mode)</label>
+                        <select id="config-gpio_mode"
+                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="BCM">BCM (Theo số hiệu GPIO)</option>
+                            <option value="BOARD">BOARD (Theo thứ tự chân cắm)</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label for="config-cycle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời gian
-                            đẩy (cycle_delay)</label>
-                        <input type="number" step="0.05" id="config-cycle_delay"
-                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    <div>
-                        <label for="config-settle_delay" class="block text-sm font-medium text-gray-400 mb-1">Thời gian
-                            chờ (settle_delay)</label>
-                        <input type="number" step="0.05" id="config-settle_delay"
-                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    <div>
-                        <label for="config-sensor_debounce" class="block text-sm font-medium text-gray-400 mb-1">Chống
-                            nhiễu sensor (sensor_debounce)</label>
-                        <input type="number" step="0.05" id="config-sensor_debounce"
-                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                    <div>
-                        <label for="config-push_delay" class="block text-sm font-medium text-gray-400 mb-1">Trễ đẩy
-                            sensor (push_delay)</label>
-                        <input type="number" step="0.05" id="config-push_delay"
-                            class="w-full bg-gray-700 text-white rounded-md p-2 border border-gray-600 focus:ring-blue-500 focus:border-blue-500">
-                    </div>
-                </div>
                 <div class="flex space-x-3">
                     <button onclick="saveConfig()"
                         class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md">Lưu
-                        Cấu Hình (POST)</button>
+                        Cấu Hình</button>
                     <button onclick="loadConfig()"
                         class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg shadow-md">Tải
-                        Lại (GET)</button>
+                        Lại</button>
                 </div>
                 <div class="mt-4">
                     <h3 class="text-sm font-medium text-gray-400 mb-2">📄 JSON cấu hình hiện tại (từ server)</h3>
@@ -362,16 +365,9 @@
 
         <!-- Trang Test (ẩn mặc định) -->
         <div id="page-test" class="hidden">
-            <!-- ... (Giữ nguyên layout trang test) ... -->
             <div class="max-w-3xl mx-auto bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg">
-                <h2 class="text-2xl font-semibold text-white mb-4 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                    </svg>
-                    Kiểm Tra Cảm Biến & Relay
-                </h2>
+                <h2 class="text-2xl font-semibold text-white mb-4">🧪 Kiểm Tra Cảm Biến & Relay</h2>
+                <!-- Auto Test -->
                 <div class="bg-gray-900 p-4 rounded-lg mb-4 text-center">
                     <h3 class="text-lg font-semibold text-gray-300 mb-3">Tự động Test (Sensor → Relay)</h3>
                     <button id="toggle-auto-test" onclick="toggleAutoTest()"
@@ -379,6 +375,8 @@
                         🔄 Bật Auto Test Sensor
                     </button>
                 </div>
+
+                <!-- Cảm biến -->
                 <div class="mb-4">
                     <h3 class="text-lg font-semibold text-gray-300 mb-2">Trạng thái Cảm biến (Realtime)</h3>
                     <div id="sensor-status" class="grid grid-cols-3 gap-3">
@@ -396,6 +394,8 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Relay Test Thủ Công -->
                 <div>
                     <h3 class="text-lg font-semibold text-gray-300 mb-2">Test Relay Thủ Công</h3>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
@@ -429,24 +429,71 @@
             </div>
         </div> <!-- /#page-test -->
 
+        <!-- (SỬA) Trang Thống Kê (trống) -->
+        <div id="page-stats" class="hidden">
+            <!-- (SỬA) Di chuyển Card Thống Kê vào đây -->
+            <div id="stats-card" class="bg-gray-800 p-3 rounded-lg shadow-lg">
+                <h2 class="text-lg font-semibold mb-2 text-white">📊 Thống Kê Sản Lượng (Theo Ngày)</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-2 bg-gray-900 p-2 rounded-md">
+                        <canvas id="sort-chart-bar" class="w-full" height="300"></canvas> <!-- Tăng chiều cao -->
+                    </div>
+                    <div class="md:col-span-1 bg-gray-900 p-2 rounded-md">
+                        <canvas id="sort-chart-doughnut" class="w-full" height="300"></canvas> <!-- Tăng chiều cao -->
+                    </div>
+                </div>
+            </div>
+        </div> <!-- /#page-stats -->
+
     </main>
+
+    <!-- Modal Xác Nhận -->
+    <div id="confirm-modal"
+        class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4 opacity-0"
+        onclick="closeConfirmModal()">
+        <div id="confirm-modal-content" class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm transform scale-95"
+            onclick="event.stopPropagation()">
+            <h3 class="text-lg font-bold text-white mb-4" id="confirm-modal-title">Xác nhận hành động</h3>
+            <p class="text-gray-300 mb-6" id="confirm-modal-text">Bạn có chắc chắn muốn tiếp tục?</p>
+            <div class="flex justify-end space-x-3">
+                <button id="confirm-modal-cancel"
+                    class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg">Hủy bỏ</button>
+                <button id="confirm-modal-ok"
+                    class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Đồng ý</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         let ws;
         let autoTestEnabled = false;
         let qrTimer;
-        let sortChartInstance = null; // (NÂNG CẤP 5) Biến giữ chart
+        let sortBarChart;
+        let sortDoughnutChart;
 
-        // (NÂNG CẤP 4) Thông tin đăng nhập (lưu ý: không an toàn tuyệt đối, chỉ để demo)
-        const AUTH_USER = "admin";
-        const AUTH_PASS = "raspberry";
-        // Tạo header Basic Auth
-        const AUTH_HEADER = "Basic " + btoa(AUTH_USER + ":" + AUTH_PASS);
+        /* --- HƯỚNG DẪN KÍCH HOẠT LẠI LOGIN (ĐĂNG NHẬP) ---
+        
+        Hiện tại, file này đang ở chế độ "ẨN LOGIN" (để sửa lỗi 401).
+        Để BẬT LẠI đăng nhập, bạn cần làm 2 bước:
+        
+        1. TRONG FILE NÀY (index.html):
+           - Tìm hàm `_fetch(url, options = {})`
+           - Xóa 2 dòng chú thích (//) ở trước `response.status === 401` và `window.location.reload()`.
+        
+        2. TRONG FILE PYTHON (sorter_fixed.py):
+           - Tìm và xóa 4 dấu thăng (#) ở trước 4 dòng `@requires_auth` 
+             (ở các route: /, /video_feed, /config, /update_config, /api/state, /api/sort_log, /ws)
+        
+        --- KẾT THÚC HƯỚNG DẪN ---
+        */
+
 
         // ===== KHỞI ĐỘNG =====
         document.addEventListener("DOMContentLoaded", () => {
+            // Tải stream video
+            document.getElementById("video_feed").src = "/video_feed";
             connectWebSocket();
-            // (NÂNG CẤP 4) loadConfig giờ cần Auth, gọi trong showPage('config')
+            loadConfig();
             showPage('home');
         });
 
@@ -454,6 +501,7 @@
         function connectWebSocket() {
             const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
             const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
@@ -461,23 +509,29 @@
             };
 
             ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === "state_update") {
-                    updateState(data.state);
-                } else if (data.type === "log") {
-                    addLog(data.log_type, data.message, data.timestamp, data.data);
+                // (ẨN LOGIN) Tạm thời bỏ qua lỗi 401
+                // if (event.data === "Unauthorized") { ... }
+
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "state_update") {
+                        updateState(data.state);
+                    } else if (data.type === "log") {
+                        addLog(data.log_type, data.message, data.timestamp, data.data);
+                    }
+                } catch (e) {
+                    console.error("Lỗi parse JSON từ WS:", e, event.data);
+                    addLog("error", "Nhận được tin nhắn WebSocket không hợp lệ.");
                 }
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
+                // (ẨN LOGIN) Tạm thời bỏ qua lỗi 1008
+                // if (event.code === 1008) { ... } 
+                // else {
                 addLog("error", "Mất kết nối WebSocket. Đang thử kết nối lại sau 3s...");
-                // (NÂNG CẤP 2) Không kết nối lại nếu đang bảo trì
-                const banner = document.getElementById("maintenance-banner");
-                if (!banner || banner.classList.contains("hidden")) {
-                    setTimeout(connectWebSocket, 3000);
-                } else {
-                    addLog("error", "Đã dừng kết nối WS do đang ở chế độ bảo trì.");
-                }
+                setTimeout(connectWebSocket, 3000);
+                // }
             };
 
             ws.onerror = () => {
@@ -485,7 +539,7 @@
             };
         }
 
-        // ===== LOGIC SIDEBAR =====
+        // ===== (SỬA) LOGIC SIDEBAR (Nút to hơn) =====
         function toggleSidebar() {
             const sidebar = document.getElementById("sidebar");
             const icon = document.getElementById("toggle-icon");
@@ -500,18 +554,22 @@
                 content.style.width = "14rem";
                 content.style.opacity = "1";
                 icon.classList.add("rotate-180");
+                // (SỬA) Nút to hơn
+                document.getElementById("sidebar-toggle").style.right = "-24px"; // 1.5rem
             } else {
                 sidebar.style.width = "6px";
-                main.style.marginLeft = "0.5rem";
+                main.style.marginLeft = "0.5rem"; // (tailwind ml-2)
                 content.style.width = "0";
                 content.style.opacity = "0";
                 icon.classList.remove("rotate-180");
+                // (SỬA) Nút to hơn
+                document.getElementById("sidebar-toggle").style.right = "-24px";
             }
         }
 
         // ===== ĐIỀU HƯỚNG TRANG =====
         function showPage(pageName) {
-            // (NÂNG CẤP 5) Thêm 'page-stats'
+            // (SỬA) Thêm 'page-stats'
             const pages = ['page-home', 'page-config', 'page-test', 'page-stats'];
             const navs = ['nav-home', 'nav-config', 'nav-test', 'nav-stats'];
 
@@ -522,19 +580,51 @@
                 document.getElementById(id)?.classList.toggle('active', id === `nav-${pageName}`);
             });
 
-            // (NÂNG CẤP 5) Tải chart khi mở tab Thống kê
+            // (SỬA) Tải biểu đồ khi mở trang stats
             if (pageName === 'stats') {
                 loadSortChart();
             }
-            // (NÂNG CẤP 4) Tải config khi mở tab Config
-            if (pageName === 'config') {
-                loadConfig();
-            }
+        }
+
+        // (XÓA) Xóa hàm scrollToStats
+        // function scrollToStats() { ... }
+
+        // ===== MODAL XÁC NHẬN =====
+        let confirmCallback = null;
+        function showConfirmModal(text, onConfirm) {
+            document.getElementById('confirm-modal-text').textContent = text;
+            confirmCallback = onConfirm;
+
+            const modal = document.getElementById('confirm-modal');
+            const modalContent = document.getElementById('confirm-modal-content');
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.style.opacity = '1';
+                modalContent.style.transform = 'scale(1)';
+            }, 10);
+
+            document.getElementById('confirm-modal-ok').onclick = () => {
+                if (confirmCallback) confirmCallback();
+                closeConfirmModal();
+            };
+            document.getElementById('confirm-modal-cancel').onclick = closeConfirmModal;
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('confirm-modal');
+            const modalContent = document.getElementById('confirm-modal-content');
+
+            modal.style.opacity = '0';
+            modalContent.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                confirmCallback = null;
+            }, 200);
         }
 
         // ===== HIỂN THỊ LOG =====
         function addLog(type, message, timestamp, data) {
-            // ... (Giữ nguyên logic)
             const logContainer = document.getElementById("log-container");
             if (!logContainer) return;
 
@@ -564,18 +654,9 @@
         function updateState(state) {
             if (!state) return;
 
-            // (NÂNG CẤP 2) Kiểm tra chế độ bảo trì
-            if (state.maintenance_mode) {
-                const banner = document.getElementById("maintenance-banner");
-                banner.classList.remove("hidden");
-                banner.textContent = `⚠️ BẢO TRÌ: ${state.maintenance_error || 'Lỗi không xác định.'}. Vui lòng kiểm tra log và khởi động lại Pi.`;
-                if (ws) ws.close(); // Đóng WS
-                return; // Dừng cập nhật UI
-            }
-
-            // 1. Cập nhật Lanes
+            // 1. Cập nhật Lanes (Trang Chủ & Trang Test)
             state.lanes.forEach((lane, i) => {
-                // ... (Giữ nguyên logic cập nhật lane)
+                document.getElementById(`lane-${i}-name`).textContent = lane.name;
                 document.getElementById(`lane-${i}-count`).textContent = lane.count;
                 document.getElementById(`lane-${i}-sensor`).classList.toggle("sensor-active", lane.sensor_reading === 0);
                 document.getElementById(`lane-${i}-sensor`).classList.toggle("sensor-inactive", lane.sensor_reading !== 0);
@@ -599,10 +680,10 @@
                 }
             });
 
-            // 2. Cập nhật Config
+            // 2. Cập nhật Config (Trang Cấu Hình)
             if (state.timing_config) {
                 const cfg = state.timing_config;
-                // ... (Giữ nguyên logic cập nhật input)
+
                 if (document.activeElement.id !== 'config-cycle_delay') {
                     document.getElementById('config-cycle_delay').value = cfg.cycle_delay;
                 }
@@ -615,25 +696,38 @@
                 if (document.activeElement.id !== 'config-push_delay') {
                     document.getElementById('config-push_delay').value = cfg.push_delay;
                 }
-
-                // Chỉ cập nhật JSON nếu trang Config đang mở
-                if (!document.getElementById('page-config').classList.contains('hidden')) {
-                    document.getElementById("config-json").textContent = JSON.stringify(cfg, null, 2);
+                if (document.activeElement.id !== 'config-gpio_mode') {
+                    document.getElementById('config-gpio_mode').value = cfg.gpio_mode || 'BCM';
                 }
+
+                document.getElementById("config-json").textContent = JSON.stringify(cfg, null, 2);
+            }
+
+            // 3. Cập nhật Badges (Huy hiệu)
+            document.getElementById('mock-badge').classList.toggle('hidden', !state.is_mock);
+            document.getElementById('maintenance-badge').classList.toggle('hidden', !state.maintenance_mode);
+
+            // 4. Cập nhật Banner Bảo trì
+            if (state.maintenance_mode) {
+                const errorMsg = state.last_error || "Lỗi không xác định.";
+                document.getElementById('maintenance-error').textContent = errorMsg;
+                document.getElementById('maintenance-banner').classList.remove('hidden');
+                document.querySelectorAll('button, input, select').forEach(el => el.disabled = true);
+            } else {
+                document.getElementById('maintenance-banner').classList.add('hidden');
+                document.querySelectorAll('button, input, select').forEach(el => el.disabled = false);
             }
         }
 
-        // ===== HIỂN THỊ QR =====
         function showQrOverlay(text, bgColorClass) {
-            // ... (Giữ nguyên logic)
             const overlay = document.getElementById("qr-overlay");
             if (!overlay) return;
             if (qrTimer) clearTimeout(qrTimer);
             overlay.textContent = text;
             overlay.className = ``;
-            overlay.classList.add('bg-opacity-80', 'shadow-lg');
+            overlay.classList.add('absolute', 'top-4', 'right-4', 'p-2', 'px-4', 'rounded-lg', 'text-xl', 'font-bold', 'text-white', 'opacity-0', 'transition-opacity', 'duration-500', 'shadow-lg');
             overlay.classList.add(...bgColorClass.split(' '));
-            overlay.style.opacity = '1';
+            setTimeout(() => overlay.style.opacity = '1', 10);
             qrTimer = setTimeout(() => {
                 overlay.style.opacity = '0';
             }, 2500);
@@ -642,108 +736,37 @@
         // ===== CÁC HÀM TƯƠNG TÁC =====
 
         // --- Trang Chủ ---
-        function resetCount(lane) {
-            // (NÂNG CẤP 4) Thêm xác nhận vì đây là hành động nguy hiểm
-            if (confirm("Bạn có chắc chắn muốn reset bộ đếm không?")) {
-                if (!ws || ws.readyState !== WebSocket.OPEN) return;
-                ws.send(JSON.stringify({ action: "reset_count", lane: lane }));
-            }
+        function resetCount(laneIndex) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ action: "reset_count", lane_index: laneIndex }));
         }
 
-        // --- (NÂNG CẤP 5) Trang Thống Kê ---
-        function loadSortChart() {
-            if (sortChartInstance) {
-                sortChartInstance.destroy(); // Xóa chart cũ
-            }
-
-            fetch("/api/sort_log", {
-                headers: { 'Authorization': AUTH_HEADER } // (NÂNG CẤP 4) Gửi Auth
-            })
-                .then(res => {
-                    if (res.status === 401) {
-                        addLog("error", "Lỗi Thống kê: Cần đăng nhập (401). Trình duyệt sẽ hỏi bạn.");
-                    }
-                    return res.json();
-                })
-                .then(data => {
-                    if (data.error) {
-                        addLog("error", `Lỗi tải thống kê: ${data.error}`);
-                        return;
-                    }
-
-                    // Xử lý dữ liệu (ví dụ: 10 ngày gần nhất)
-                    const labels = Object.keys(data).sort().slice(-10); // Lấy 10 ngày cuối
-                    const datasets = {};
-                    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444']; // blue, green, yellow, red
-
-                    labels.forEach(date => {
-                        const dayData = data[date] || {};
-                        Object.keys(dayData).forEach((laneName, index) => {
-                            datasets.setdefault(laneName, {
-                                label: laneName,
-                                data: [],
-                                backgroundColor: colors[index % colors.length]
-                            });
-                        });
-                    });
-
-                    // Đổ dữ liệu
-                    labels.forEach(date => {
-                        Object.keys(datasets).forEach(laneName => {
-                            const count = parseInt(data[date]?.[laneName] || 0);
-                            datasets[laneName].data.push(count);
-                        });
-                    });
-
-                    const ctx = document.getElementById('sortChart').getContext('2d');
-                    sortChartInstance = new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: labels,
-                            datasets: Object.values(datasets)
-                        },
-                        options: {
-                            responsive: true,
-                            scales: {
-                                x: { stacked: true, ticks: { color: '#9ca3af' } },
-                                y: { stacked: true, ticks: { color: '#9ca3af' }, beginAtZero: true }
-                            },
-                            plugins: {
-                                legend: { labels: { color: '#d1d5db' } }
-                            }
-                        }
-                    });
-                    addLog("success", "Đã tải biểu đồ thống kê.");
-                })
-                .catch(err => {
-                    addLog("error", "Lỗi fetch /api/sort_log.");
-                    console.error("Lỗi fetch /api/sort_log:", err);
-                });
+        // --- Trang Cấu Hình ---
+        function _fetch(url, options = {}) {
+            // (ẨN LOGIN) Tạm thời bỏ qua lỗi 401
+            return fetch(url, options).then(response => {
+                // if (response.status === 401) {
+                //     addLog("error", "Lỗi xác thực (401). Vui lòng tải lại trang và đăng nhập.");
+                //     window.location.reload(); 
+                // }
+                return response;
+            });
         }
 
-        // --- Trang Cấu Hình (NÂNG CẤP 4: Dùng fetch + Auth) ---
         function loadConfig() {
-            document.getElementById("config-json").textContent = "Đang tải... (yêu cầu xác thực)";
-            fetch("/config", {
-                headers: {
-                    'Authorization': AUTH_HEADER
-                }
-            })
+            _fetch("/config")
                 .then(res => {
-                    if (res.status === 401) {
-                        addLog("error", "Lỗi Config: Cần đăng nhập (401). Trình duyệt sẽ hỏi bạn.");
-                        document.getElementById("config-json").textContent = "LỖI 401: Cần đăng nhập.";
-                    }
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
                 })
                 .then(cfg => {
-                    if (cfg.error) return;
                     document.getElementById("config-json").textContent = JSON.stringify(cfg, null, 2);
                     document.getElementById("config-cycle_delay").value = cfg.cycle_delay;
                     document.getElementById("config-settle_delay").value = cfg.settle_delay;
                     document.getElementById("config-sensor_debounce").value = cfg.sensor_debounce;
                     document.getElementById("config-push_delay").value = cfg.push_delay;
-                    addLog("success", "Đã tải cấu hình (Bảo mật).");
+                    document.getElementById("config-gpio_mode").value = cfg.gpio_mode || 'BCM';
+                    addLog("success", "Đã tải cấu hình từ server.");
                 })
                 .catch(err => {
                     addLog("error", "Không thể tải cấu hình.");
@@ -756,44 +779,30 @@
                 cycle_delay: parseFloat(document.getElementById('config-cycle_delay').value),
                 settle_delay: parseFloat(document.getElementById('config-settle_delay').value),
                 sensor_debounce: parseFloat(document.getElementById('config-sensor_debounce').value),
-                push_delay: parseFloat(document.getElementById('config-push_delay').value)
+                push_delay: parseFloat(document.getElementById('config_push_delay').value),
+                gpio_mode: document.getElementById('config-gpio_mode').value
             };
 
-            fetch("/update_config", {
-                method: 'POST',
-                headers: {
-                    'Authorization': AUTH_HEADER,
-                    'Content-Type': 'application/json'
-                },
+            _fetch("/update_config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newConfig)
             })
                 .then(res => {
-                    if (res.status === 401) {
-                        addLog("error", "Lỗi Lưu Config: Cần đăng nhập (401).");
-                    }
+                    if (!res.ok) throw new Error(`Lỗi server: ${res.status}`);
                     return res.json();
                 })
                 .then(data => {
-                    if (data.message === "Lưu thành công") {
-                        addLog("success", "Đã LƯU cấu hình mới (Bảo mật).");
-                        // Tải lại JSON preview
-                        document.getElementById("config-json").textContent = JSON.stringify(data.config, null, 2);
-                    } else {
-                        addLog("error", `Lỗi lưu config: ${data.error || 'Không rõ'}`);
-                    }
+                    addLog("success", "Đã lưu cấu hình mới thành công (qua POST).");
+                    document.getElementById("config-json").textContent = JSON.stringify(data.config, null, 2);
                 })
                 .catch(err => {
-                    addLog("error", "Lỗi fetch /update_config.");
-                    console.error("Lỗi fetch /update_config:", err);
+                    addLog("error", `Không thể lưu config: ${err.message}`);
                 });
         }
 
         // --- Trang Test ---
         function testRelay(laneIndex, action) {
-            if (autoTestEnabled) {
-                addLog("error", "Vui lòng tắt Auto-Test trước khi test thủ công.");
-                return;
-            }
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 addLog("error", "Không thể test: Mất kết nối WebSocket.");
                 return;
@@ -803,10 +812,6 @@
         }
 
         function testAllRelays() {
-            if (autoTestEnabled) {
-                addLog("error", "Vui lòng tắt Auto-Test trước khi test thủ công.");
-                return;
-            }
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 addLog("error", "Không thể test: Mất kết nối WebSocket.");
                 return;
@@ -836,6 +841,91 @@
                 addLog("info", "Đã tắt chế độ Auto-Test.");
             }
         }
+
+        // --- Vẽ Biểu Đồ ---
+        function loadSortChart() {
+            _fetch("/api/sort_log")
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.json();
+                })
+                .then(data => {
+                    renderCharts(data);
+                })
+                .catch(err => {
+                    addLog("error", "Không thể tải dữ liệu thống kê.");
+                    console.error("Lỗi fetch /api/sort_log:", err);
+                });
+        }
+
+        function renderCharts(data) {
+            // --- Xử lý dữ liệu ---
+            const today = new Date().toISOString().split('T')[0];
+            const days = Object.keys(data).sort().slice(-7); // Lấy 7 ngày gần nhất
+            // (SỬA LỖI) labels phải được định nghĩa trước khi dùng
+            const labels = days;
+
+            const laneNames = ["Loại 1", "Loại 2", "Loại 3"];
+            const colors = ['#3b82f6', '#10b981', '#f59e0b']; // Blue, Green, Yellow
+
+            const datasets = laneNames.map((name, i) => {
+                return {
+                    label: name,
+                    data: labels.map(day => data[day]?.[name] || 0),
+                    backgroundColor: colors[i],
+                };
+            });
+
+            const todayData = data[today] || {};
+            const doughnutData = laneNames.map(name => todayData[name] || 0);
+            const totalToday = doughnutData.reduce((a, b) => a + b, 0);
+
+            // --- Vẽ Biểu Đồ Cột (Bar Chart) ---
+            const ctxBar = document.getElementById('sort-chart-bar')?.getContext('2d'); // Thêm ?.
+            if (!ctxBar) return; // Thoát nếu không tìm thấy canvas
+            if (sortBarChart) sortBarChart.destroy();
+            sortBarChart = new Chart(ctxBar, {
+                type: 'bar',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true, ticks: { color: '#9ca3af' } },
+                        y: { stacked: true, beginAtZero: true, ticks: { color: '#9ca3af', stepSize: 1 } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#d1d5db' } },
+                        title: { display: true, text: 'Sản Lượng 7 Ngày Gần Nhất', color: '#fff' }
+                    }
+                }
+            });
+
+            // --- Vẽ Biểu Đồ Tròn (Doughnut Chart) ---
+            const ctxDoughnut = document.getElementById('sort-chart-doughnut')?.getContext('2d'); // Thêm ?.
+            if (!ctxDoughnut) return; // Thoát nếu không tìm thấy canvas
+            if (sortDoughnutChart) sortDoughnutChart.destroy();
+            sortDoughnutChart = new Chart(ctxDoughnut, {
+                type: 'doughnut',
+                data: {
+                    labels: laneNames,
+                    datasets: [{
+                        data: doughnutData,
+                        backgroundColor: colors,
+                        borderColor: '#4b5563'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#d1d5db' } },
+                        title: { display: true, text: `Hôm Nay (Tổng: ${totalToday})`, color: '#fff' }
+                    }
+                }
+            });
+        }
+
     </script>
 </body>
 

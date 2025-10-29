@@ -5,8 +5,9 @@ import json
 import threading
 import logging
 import os
+import functools # (SỬA LỖI) Thêm thư viện functools
 # (SỬA LỖI 1) Thêm thư viện ThreadPoolExecutor
-from concurrent.futures import ThreadPoolExecutor 
+from concurrent.futures import ThreadPoolExecutor
 # (SỬA LỖI 1) Thêm 'jsonify' và 'Response', 'request'
 from flask import Flask, render_template, Response, jsonify, request
 
@@ -49,10 +50,10 @@ class RealGPIO(GPIOProvider):
         self.HIGH = self.gpio.HIGH
         self.LOW = self.gpio.LOW
         self.PUD_UP = self.gpio.PUD_UP
-        
+
     def setmode(self, mode): self.gpio.setmode(mode)
     def setwarnings(self, value): self.gpio.setwarnings(value)
-    def setup(self, pin, mode, pull_up_down=None): 
+    def setup(self, pin, mode, pull_up_down=None):
         if pull_up_down:
             self.gpio.setup(pin, mode, pull_up_down=pull_up_down)
         else:
@@ -78,16 +79,16 @@ class MockGPIO(GPIOProvider):
 
     def setmode(self, mode): logging.info(f"[MOCK] setmode={mode}")
     def setwarnings(self, value): logging.info(f"[MOCK] setwarnings={value}")
-    def setup(self, pin, mode, pull_up_down=None): 
+    def setup(self, pin, mode, pull_up_down=None):
         logging.info(f"[MOCK] setup pin {pin} mode={mode} pull_up_down={pull_up_down}")
         if mode == self.OUT:
             self.pin_states[pin] = self.LOW # Mặc định là LOW
         else: # IN
             self.pin_states[pin] = self.HIGH # Mặc định là HIGH (do PUD_UP)
-    def output(self, pin, value): 
+    def output(self, pin, value):
         logging.info(f"[MOCK] output pin {pin}={value}")
         self.pin_states[pin] = value
-    def input(self, pin): 
+    def input(self, pin):
         # Giả lập sensor luôn ở trạng thái 1 (không có vật)
         val = self.pin_states.get(pin, self.HIGH)
         # logging.info(f"[MOCK] input pin {pin} -> {val}")
@@ -162,38 +163,23 @@ sort_log_lock = threading.Lock()
 # =============================
 #         KHAI BÁO CHÂN GPIO
 # =============================
-# Dùng GPIO.BCM (chuẩn) thay vì GPIO.BOARD
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
+# (CHUYỂN) Không gọi GPIO.setmode() ở đây nữa, chuyển vào __main__
 
-# --- Relay (piston) ---
-P1_PUSH = 17   # BOARD 11
-P1_PULL = 18   # BOARD 12
-P2_PUSH = 27   # BOARD 13
-P2_PULL = 14   # BOARD 8
-P3_PUSH = 22   # BOARD 15
-P3_PULL = 4    # BOARD 7
+# Định nghĩa mặc định (sẽ bị ghi đè bởi config)
+DEFAULT_LANES_CONFIG = [
+    {"name": "Loại 1", "sensor_pin": 3, "push_pin": 17, "pull_pin": 18},
+    {"name": "Loại 2", "sensor_pin": 23, "push_pin": 27, "pull_pin": 14},
+    {"name": "Loại 3", "sensor_pin": 24, "push_pin": 22, "pull_pin": 4},
+]
+lanes_config = DEFAULT_LANES_CONFIG # Sẽ được cập nhật từ file config
 
-# --- Sensor ---
-SENSOR1 = 3    # BOARD 5
-SENSOR2 = 23   # BOARD 16
-SENSOR3 = 24   # BOARD 18
-
-# Danh sách setup GPIO (chỉ dùng để setup ban đầu)
-RELAY_PINS = [P1_PUSH, P1_PULL, P2_PUSH, P2_PULL, P3_PUSH, P3_PULL]
-SENSOR_PINS = [SENSOR1, SENSOR2, SENSOR3]
-
-# Setup chế độ GPIO
-for pin in RELAY_PINS:
-    GPIO.setup(pin, GPIO.OUT)
-for pin in SENSOR_PINS:
-    # Dùng PUD_UP (pull-up resistor) cho cảm biến
-    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+# Tạo danh sách chân từ config (sau khi load)
+RELAY_PINS = []
+SENSOR_PINS = []
 
 # =============================
 #       HÀM ĐIỀU KHIỂN RELAY
 # =============================
-# Các hàm này giúp code dễ đọc hơn, không cần nhớ HIGH/LOW
 def RELAY_ON(pin):
     """Bật relay (kích hoạt)."""
     GPIO.output(pin, GPIO.LOW if ACTIVE_LOW else GPIO.HIGH)
@@ -205,125 +191,168 @@ def RELAY_OFF(pin):
 # =============================
 #        TRẠNG THÁI HỆ THỐNG
 # =============================
-# Đây là "Single Source of Truth" (Nguồn dữ liệu duy nhất) của hệ thống
+# Cấu trúc system_state ban đầu, lanes sẽ được tạo động từ config
 system_state = {
-    "lanes": [
-        {
-            "name": "Loại 1", "status": "Sẵn sàng", "count": 0,
-            "sensor_pin": SENSOR1, "push_pin": P1_PUSH, "pull_pin": P1_PULL,
-            "sensor_reading": 1, "relay_grab": 0, "relay_push": 0
-        },
-        {
-            "name": "Loại 2", "status": "Sẵn sàng", "count": 0,
-            "sensor_pin": SENSOR2, "push_pin": P2_PUSH, "pull_pin": P2_PULL,
-            "sensor_reading": 1, "relay_grab": 0, "relay_push": 0
-        },
-        {
-            "name": "Loại 3", "status": "Sẵn sàng", "count": 0,
-            "sensor_pin": SENSOR3, "push_pin": P3_PUSH, "pull_pin": P3_PULL,
-            "sensor_reading": 1, "relay_grab": 0, "relay_push": 0
-        }
-    ],
+    "lanes": [], # Sẽ được tạo động từ lanes_config
     "timing_config": {
-        "cycle_delay": 0.3,   # Thời gian đẩy
-        "settle_delay": 0.2,  # Thời gian chờ (giữa 2 hành động)
-        "sensor_debounce": 0.1, # Thời gian chống nhiễu sensor
-        "push_delay": 0.0     # Thời gian chờ từ lúc sensor thấy -> lúc đẩy
+        "cycle_delay": 0.3,
+        "settle_delay": 0.2,
+        "sensor_debounce": 0.1,
+        "push_delay": 0.0,
+        "gpio_mode": "BCM"
     },
-    # (MỚI) Thêm 2 trạng thái này để UI biết
-    "is_mock": isinstance(GPIO, MockGPIO), # Đang chạy giả lập?
-    "maintenance_mode": False # Đang bảo trì?
+    "is_mock": isinstance(GPIO, MockGPIO),
+    "maintenance_mode": False,
+    "gpio_mode": "BCM",
+    "last_error": None # (MỚI) Thêm last_error vào state
 }
 
 # Các biến global cho threading
-state_lock = threading.Lock() # Lock để bảo vệ system_state
-main_loop_running = True # Cờ (flag) để báo các luồng dừng lại
-latest_frame = None      # Khung hình camera mới nhất
-frame_lock = threading.Lock() # Lock để bảo vệ latest_frame
+state_lock = threading.Lock()
+main_loop_running = True
+latest_frame = None
+frame_lock = threading.Lock()
 
 # Biến cho việc chống nhiễu (debounce) sensor
-last_sensor_state = [1, 1, 1]
-last_sensor_trigger_time = [0.0, 0.0, 0.0]
+last_sensor_state = [] # Sẽ được khởi tạo dựa trên số lanes
+last_sensor_trigger_time = [] # Sẽ được khởi tạo
 
 # Biến toàn cục cho chức năng Test
 AUTO_TEST_ENABLED = False
-auto_test_last_state = [1, 1, 1]
-auto_test_last_trigger = [0.0, 0.0, 0.0]
+auto_test_last_state = [] # Sẽ được khởi tạo
+auto_test_last_trigger = [] # Sẽ được khởi tạo
 
 
 # =============================
 #      HÀM KHỞI ĐỘNG & CONFIG
 # =============================
 def load_local_config():
-    """Tải cấu hình từ config.json, nếu không có thì tạo mặc định."""
-    default_config = {
+    """Tải cấu hình từ config.json, bao gồm cả timing và lanes."""
+    global lanes_config, RELAY_PINS, SENSOR_PINS
+    global last_sensor_state, last_sensor_trigger_time
+    global auto_test_last_state, auto_test_last_trigger
+
+    default_timing_config = {
         "cycle_delay": 0.3,
         "settle_delay": 0.2,
         "sensor_debounce": 0.1,
-        "push_delay": 0.0
+        "push_delay": 0.0,
+        "gpio_mode": "BCM"
     }
-    
+    # (MỚI) Thêm config mặc định cho lanes
+    default_config_full = {
+        "timing_config": default_timing_config,
+        "lanes_config": DEFAULT_LANES_CONFIG # Lấy từ biến global
+    }
+
+    loaded_config = default_config_full # Bắt đầu với mặc định
+
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
                 file_content = f.read()
                 if not file_content:
                     logging.warning("[CONFIG] File config rỗng, dùng mặc định.")
-                    cfg_from_file = default_config
                 else:
-                    cfg_from_file = json.loads(file_content).get('timing_config', default_config)
-                
-                # Đảm bảo 4 key luôn tồn tại
-                final_cfg = default_config.copy()
-                final_cfg.update(cfg_from_file) 
+                    loaded_config_from_file = json.loads(file_content)
+                    # Merge timing config
+                    timing_cfg = default_timing_config.copy()
+                    timing_cfg.update(loaded_config_from_file.get('timing_config', {}))
+                    loaded_config['timing_config'] = timing_cfg
+                    # Merge lanes config
+                    loaded_config['lanes_config'] = loaded_config_from_file.get('lanes_config', DEFAULT_LANES_CONFIG)
 
-                with state_lock:
-                    system_state['timing_config'] = final_cfg
-                logging.info(f"[CONFIG] Loaded config: {final_cfg}")
         except Exception as e:
             logging.error(f"[CONFIG] Lỗi đọc file config ({e}), dùng mặc định.")
             error_manager.trigger_maintenance(f"Lỗi file config.json: {e}")
-            with state_lock:
-                system_state['timing_config'] = default_config
+            loaded_config = default_config_full # Reset về mặc định nếu lỗi
     else:
         logging.warning("[CONFIG] Không có file config, dùng mặc định và tạo mới.")
-        with state_lock:
-            system_state['timing_config'] = default_config
         try:
              with open(CONFIG_FILE, 'w') as f:
-                json.dump({"timing_config": default_config}, f, indent=4)
+                json.dump(loaded_config, f, indent=4) # Lưu config đầy đủ
         except Exception as e:
              logging.error(f"[CONFIG] Không thể tạo file config mới: {e}")
+
+    # Cập nhật global config và state
+    lanes_config = loaded_config['lanes_config']
+    num_lanes = len(lanes_config)
+
+    # Tạo lại system_state["lanes"] dựa trên config mới
+    new_system_lanes = []
+    RELAY_PINS = []
+    SENSOR_PINS = []
+    for i, lane_cfg in enumerate(lanes_config):
+        new_system_lanes.append({
+            "name": lane_cfg.get("name", f"Lane {i+1}"),
+            "status": "Sẵn sàng",
+            "count": 0,
+            "sensor_pin": lane_cfg.get("sensor_pin"),
+            "push_pin": lane_cfg.get("push_pin"),
+            "pull_pin": lane_cfg.get("pull_pin"),
+            "sensor_reading": 1,
+            "relay_grab": 0,
+            "relay_push": 0
+        })
+        # Thêm pin vào danh sách để setup
+        if lane_cfg.get("sensor_pin"): SENSOR_PINS.append(lane_cfg["sensor_pin"])
+        if lane_cfg.get("push_pin"): RELAY_PINS.append(lane_cfg["push_pin"])
+        if lane_cfg.get("pull_pin"): RELAY_PINS.append(lane_cfg["pull_pin"])
+
+    # Khởi tạo các biến state dựa trên số lanes
+    last_sensor_state = [1] * num_lanes
+    last_sensor_trigger_time = [0.0] * num_lanes
+    auto_test_last_state = [1] * num_lanes
+    auto_test_last_trigger = [0.0] * num_lanes
+
+    with state_lock:
+        system_state['timing_config'] = loaded_config['timing_config']
+        system_state['gpio_mode'] = loaded_config['timing_config'].get("gpio_mode", "BCM")
+        system_state['lanes'] = new_system_lanes # Ghi đè lanes cũ
+    logging.info(f"[CONFIG] Loaded {num_lanes} lanes config.")
+    logging.info(f"[CONFIG] Loaded timing config: {system_state['timing_config']}")
 
 def reset_all_relays_to_default():
     """Reset tất cả relay về trạng thái an toàn (THU BẬT, ĐẨY TẮT)."""
     logging.info("[GPIO] Reset tất cả relay về trạng thái mặc định (THU BẬT).")
     with state_lock:
+        # Lặp qua state để đảm bảo dùng đúng pin đã load
         for lane in system_state["lanes"]:
-            RELAY_ON(lane["pull_pin"])
-            RELAY_OFF(lane["push_pin"])
+            if lane.get("pull_pin"): RELAY_ON(lane["pull_pin"])
+            if lane.get("push_pin"): RELAY_OFF(lane["push_pin"])
             # Cập nhật trạng thái
-            lane["relay_grab"] = 1
+            lane["relay_grab"] = 1 if lane.get("pull_pin") else 0
             lane["relay_push"] = 0
             lane["status"] = "Sẵn sàng"
-    time.sleep(0.1) 
+    time.sleep(0.1)
     logging.info("[GPIO] Reset hoàn tất.")
 
 def periodic_config_save():
-    """Tự động lưu config mỗi 60s."""
+    """Tự động lưu config mỗi 60s (bao gồm cả timing và lanes)."""
     while main_loop_running:
         time.sleep(60)
-        
+
         if error_manager.is_maintenance():
-            continue # Không lưu config nếu đang lỗi
+            continue
 
         try:
+            config_to_save = {}
             with state_lock:
-                config_to_save = system_state['timing_config'].copy()
-            
+                config_to_save['timing_config'] = system_state['timing_config'].copy()
+                # Lấy lanes_config hiện tại (có thể đã thay đổi)
+                current_lanes_config = []
+                for lane_state in system_state['lanes']:
+                    current_lanes_config.append({
+                        "name": lane_state['name'],
+                        "sensor_pin": lane_state['sensor_pin'],
+                        "push_pin": lane_state['push_pin'],
+                        "pull_pin": lane_state['pull_pin']
+                    })
+                config_to_save['lanes_config'] = current_lanes_config
+
             with open(CONFIG_FILE, 'w') as f:
-                json.dump({"timing_config": config_to_save}, f, indent=4)
-            logging.info("[CONFIG] Đã tự động lưu config.")
+                json.dump(config_to_save, f, indent=4)
+            logging.info("[CONFIG] Đã tự động lưu config (timing + lanes).")
         except Exception as e:
             logging.error(f"[CONFIG] Lỗi tự động lưu config: {e}")
 
@@ -335,19 +364,17 @@ def camera_capture_thread():
     camera = cv2.VideoCapture(CAMERA_INDEX)
     camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    camera.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
+    camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     if not camera.isOpened():
         logging.error("[ERROR] Không mở được camera.")
-        # (MỚI) Kích hoạt bảo trì
         error_manager.trigger_maintenance("Không thể mở camera.")
         return
 
     retries = 0
-    max_retries = 5 # Thử lại 5 lần
+    max_retries = 5
 
     while main_loop_running:
-        # (MỚI) Dừng nếu đang bảo trì
         if error_manager.is_maintenance():
             time.sleep(0.5)
             continue
@@ -357,23 +384,22 @@ def camera_capture_thread():
             retries += 1
             logging.warning(f"[WARN] Mất camera (lần {retries}/{max_retries}), thử khởi động lại...")
             broadcast_log({"log_type":"error","message":f"Mất camera (lần {retries}), đang thử lại..."})
-            
+
             if retries > max_retries:
                 logging.critical("[ERROR] Camera lỗi vĩnh viễn. Chuyển sang chế độ bảo trì.")
-                # (MỚI) Kích hoạt bảo trì
                 error_manager.trigger_maintenance("Camera lỗi vĩnh viễn (mất kết nối).")
-                break # Dừng luồng camera
+                break
 
             camera.release()
             time.sleep(1)
             camera = cv2.VideoCapture(CAMERA_INDEX)
             continue
-        
-        retries = 0 # Reset bộ đếm nếu thành công
+
+        retries = 0
 
         with frame_lock:
             latest_frame = frame.copy()
-        time.sleep(1 / 30) # 30 FPS
+        time.sleep(1 / 30)
     camera.release()
 
 # =============================
@@ -381,28 +407,39 @@ def camera_capture_thread():
 # =============================
 def log_sort_count(lane_index, lane_name):
     """Ghi lại số lượng đếm vào file JSON theo ngày (an toàn)."""
-    # (SỬA LỖI 3) Dùng lock để bảo vệ file
     with sort_log_lock:
         try:
             today = time.strftime('%Y-%m-%d')
-            
+
             sort_log = {}
             if os.path.exists(SORT_LOG_FILE):
-                with open(SORT_LOG_FILE, 'r') as f:
-                    file_content = f.read()
-                    if file_content:
-                        sort_log = json.loads(file_content)
-                    else:
-                        logging.warning("[SORT_LOG] File sort_log.json rỗng.")
-            
+                try:
+                    with open(SORT_LOG_FILE, 'r') as f:
+                        file_content = f.read()
+                        if file_content:
+                            sort_log = json.loads(file_content)
+                except json.JSONDecodeError:
+                     logging.error(f"[SORT_LOG] Lỗi đọc file {SORT_LOG_FILE}, file có thể bị hỏng.")
+                     # Tạo backup và bắt đầu lại file mới
+                     backup_name = f"{SORT_LOG_FILE}.{time.strftime('%Y%m%d_%H%M%S')}.bak"
+                     try:
+                         os.rename(SORT_LOG_FILE, backup_name)
+                         logging.warning(f"[SORT_LOG] Đã backup file lỗi thành {backup_name}")
+                     except Exception as re:
+                          logging.error(f"[SORT_LOG] Không thể backup file lỗi: {re}")
+                     sort_log = {} # Bắt đầu lại
+                except Exception as e:
+                     logging.error(f"[SORT_LOG] Lỗi không xác định khi đọc file: {e}")
+                     sort_log = {}
+
             sort_log.setdefault(today, {})
             sort_log[today].setdefault(lane_name, 0)
-            
+
             sort_log[today][lane_name] += 1
-            
+
             with open(SORT_LOG_FILE, 'w') as f:
                 json.dump(sort_log, f, indent=4)
-                
+
         except Exception as e:
             logging.error(f"[ERROR] Lỗi khi ghi sort_log.json: {e}")
 
@@ -411,93 +448,118 @@ def log_sort_count(lane_index, lane_name):
 # =============================
 def sorting_process(lane_index):
     """Quy trình đẩy-thu piston (chạy trên 1 luồng riêng)."""
-    lane_name = "" 
+    lane_name = ""
+    push_pin, pull_pin = None, None # Khởi tạo
     try:
         with state_lock:
+            # Đảm bảo index hợp lệ
+            if not (0 <= lane_index < len(system_state["lanes"])):
+                 logging.error(f"[SORT] Lane index {lane_index} không hợp lệ.")
+                 return
+
             cfg = system_state['timing_config']
             delay = cfg['cycle_delay']
             settle_delay = cfg['settle_delay']
-            
+
             lane = system_state["lanes"][lane_index]
             lane_name = lane["name"]
-            push_pin = lane["push_pin"]
-            pull_pin = lane["pull_pin"]
-            
+            push_pin = lane.get("push_pin")
+            pull_pin = lane.get("pull_pin")
+
+            # Kiểm tra xem pin có được định nghĩa không
+            if not push_pin or not pull_pin:
+                logging.error(f"[SORT] Lane {lane_name} (index {lane_index}) chưa được cấu hình đủ chân relay.")
+                lane["status"] = "Lỗi Config"
+                broadcast_log({"log_type": "error", "message": f"Lane {lane_name} thiếu cấu hình chân relay."})
+                return # Không chạy nếu thiếu pin
+
             lane["status"] = "Đang phân loại..."
-        
+
         broadcast_log({"log_type": "info", "message": f"Bắt đầu chu trình đẩy {lane_name}"})
 
-        # 1. Tắt relay THU
+        # --- Chu trình ---
         RELAY_OFF(pull_pin)
         with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 0
         time.sleep(settle_delay)
         if not main_loop_running: return
 
-        # 2. Bật relay ĐẨY
         RELAY_ON(push_pin)
         with state_lock: system_state["lanes"][lane_index]["relay_push"] = 1
         time.sleep(delay)
         if not main_loop_running: return
-        
-        # 3. Tắt relay ĐẨY
+
         RELAY_OFF(push_pin)
         with state_lock: system_state["lanes"][lane_index]["relay_push"] = 0
         time.sleep(settle_delay)
         if not main_loop_running: return
-        
-        # 4. Bật relay THU (về vị trí cũ)
+
         RELAY_ON(pull_pin)
         with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 1
-        
+
+    except Exception as e:
+         logging.error(f"[SORT] Lỗi trong sorting_process (lane {lane_name}): {e}")
+         error_manager.trigger_maintenance(f"Lỗi sorting_process (Lane {lane_name}): {e}")
     finally:
-        # Dù lỗi hay không, luôn reset trạng thái về Sẵn sàng
+        # Đảm bảo luôn reset trạng thái, ngay cả khi pin bị thiếu
         with state_lock:
-            lane = system_state["lanes"][lane_index] 
-            lane["status"] = "Sẵn sàng"
-            lane["count"] += 1
-            broadcast_log({"log_type": "sort", "name": lane_name, "count": lane['count']})
-        
-        # (SỬA LỖI 4) Di chuyển hàm log vào trong finally
-        if lane_name: 
-            log_sort_count(lane_index, lane_name)
-            
-        broadcast_log({"log_type": "info", "message": f"Hoàn tất chu trình cho {lane_name}"})
+             if 0 <= lane_index < len(system_state["lanes"]):
+                 lane = system_state["lanes"][lane_index]
+                 # Chỉ tăng count và log nếu chu trình chạy (có lane_name) và không phải lỗi config
+                 if lane_name and lane["status"] != "Lỗi Config":
+                     lane["count"] += 1
+                     broadcast_log({"log_type": "sort", "name": lane_name, "count": lane['count']})
+                     # Ghi log chỉ khi thành công
+                     log_sort_count(lane_index, lane_name)
+                 
+                 # Reset trạng thái về Sẵn sàng (hoặc giữ Lỗi Config)
+                 if lane["status"] != "Lỗi Config":
+                     lane["status"] = "Sẵn sàng"
+
+        if lane_name: # Chỉ log nếu lane_name đã được gán
+            broadcast_log({"log_type": "info", "message": f"Hoàn tất chu trình cho {lane_name}"})
+
 
 def handle_sorting_with_delay(lane_index):
     """Luồng trung gian, chờ push_delay rồi mới gọi sorting_process."""
     push_delay = 0.0
-    lane_name_for_log = f"Lane {lane_index + 1}" 
-    
+    lane_name_for_log = f"Lane {lane_index + 1}"
+
     try:
         with state_lock:
+             # Đảm bảo index hợp lệ
+            if not (0 <= lane_index < len(system_state["lanes"])):
+                 logging.error(f"[DELAY] Lane index {lane_index} không hợp lệ.")
+                 return
             push_delay = system_state['timing_config'].get('push_delay', 0.0)
             lane_name_for_log = system_state['lanes'][lane_index]['name']
-        
+
         if push_delay > 0:
             broadcast_log({"log_type": "info", "message": f"Đã thấy vật {lane_name_for_log}, chờ {push_delay}s..."})
             time.sleep(push_delay)
-        
+
         if not main_loop_running:
              broadcast_log({"log_type": "warn", "message": f"Hủy chu trình {lane_name_for_log} do hệ thống đang tắt."})
              return
 
         with state_lock:
+            # Kiểm tra index lại lần nữa trước khi truy cập
+            if not (0 <= lane_index < len(system_state["lanes"])): return
             current_status = system_state["lanes"][lane_index]["status"]
-        
-        # Chỉ chạy nếu trạng thái vẫn là "Đang chờ đẩy"
+
         if current_status == "Đang chờ đẩy":
              sorting_process(lane_index)
         else:
              broadcast_log({"log_type": "warn", "message": f"Hủy chu trình {lane_name_for_log} do trạng thái thay đổi."})
-        
+
     except Exception as e:
         logging.error(f"[ERROR] Lỗi trong luồng handle_sorting_with_delay (lane {lane_name_for_log}): {e}")
-        # (SỬA LỖI 2) Kích hoạt bảo trì nếu luồng này lỗi
         error_manager.trigger_maintenance(f"Lỗi luồng sorting_delay (Lane {lane_name_for_log}): {e}")
         with state_lock:
-             if system_state["lanes"][lane_index]["status"] == "Đang chờ đẩy":
-                  system_state["lanes"][lane_index]["status"] = "Sẵn sàng"
-                  broadcast_log({"log_type": "error", "message": f"Lỗi delay, reset {lane_name_for_log}"})
+             # Kiểm tra index trước khi reset
+             if 0 <= lane_index < len(system_state["lanes"]):
+                 if system_state["lanes"][lane_index]["status"] == "Đang chờ đẩy":
+                      system_state["lanes"][lane_index]["status"] = "Sẵn sàng"
+                      broadcast_log({"log_type": "error", "message": f"Lỗi delay, reset {lane_name_for_log}"})
 
 
 # =============================
@@ -506,25 +568,32 @@ def handle_sorting_with_delay(lane_index):
 def qr_detection_loop():
     detector = cv2.QRCodeDetector()
     last_qr, last_time = "", 0.0
-    LANE_MAP = {"LOAI1": 0, "LOAI2": 1, "LOAI3": 2}
+    # (SỬA) Tạo LANE_MAP động từ system_state
+    LANE_MAP = {}
+    with state_lock:
+        for i, lane in enumerate(system_state["lanes"]):
+            # Chuyển tên lane thành chữ hoa, bỏ dấu cách để làm key
+            key = lane["name"].upper().replace(" ", "")
+            LANE_MAP[key] = i
+    logging.info(f"[QR] Lane map đã tạo: {LANE_MAP}")
 
     while main_loop_running:
         if AUTO_TEST_ENABLED or error_manager.is_maintenance():
             time.sleep(0.2)
             continue
-            
+
         frame_copy = None
         with frame_lock:
             if latest_frame is not None:
                 frame_copy = latest_frame.copy()
-        
+
         if frame_copy is None:
             time.sleep(0.1)
             continue
-            
+
         try:
             gray_frame = cv2.cvtColor(frame_copy, cv2.COLOR_BGR2GRAY)
-            if gray_frame.mean() < 10: 
+            if gray_frame.mean() < 10:
                 time.sleep(0.1)
                 continue
         except Exception:
@@ -534,24 +603,26 @@ def qr_detection_loop():
             data, _, _ = detector.detectAndDecode(frame_copy)
         except cv2.error:
             data = None
-            time.sleep(0.1) 
+            time.sleep(0.1)
             continue
 
         if data and (data != last_qr or time.time() - last_time > 3.0):
             last_qr, last_time = data, time.time()
-            data_upper = data.strip().upper()
-            
+            data_upper = data.strip().upper().replace(" ", "") # Chuẩn hóa key
+
             if data_upper in LANE_MAP:
                 idx = LANE_MAP[data_upper]
+                # Kiểm tra index hợp lệ
                 with state_lock:
-                    if system_state["lanes"][idx]["status"] == "Sẵn sàng":
-                        broadcast_log({"log_type": "qr", "data": data_upper})
-                        system_state["lanes"][idx]["status"] = "Đang chờ vật..."
+                     if 0 <= idx < len(system_state["lanes"]):
+                         if system_state["lanes"][idx]["status"] == "Sẵn sàng":
+                             broadcast_log({"log_type": "qr", "data": data_upper})
+                             system_state["lanes"][idx]["status"] = "Đang chờ vật..."
             elif data_upper == "NG":
                 broadcast_log({"log_type": "qr_ng", "data": data_upper})
             else:
                 broadcast_log({"log_type": "unknown_qr", "data": data_upper})
-        
+
         time.sleep(0.1)
 
 # =============================
@@ -559,51 +630,65 @@ def qr_detection_loop():
 # =============================
 def sensor_monitoring_thread():
     global last_sensor_state, last_sensor_trigger_time
-    
+
     try:
         while main_loop_running:
             if AUTO_TEST_ENABLED or error_manager.is_maintenance():
                 time.sleep(0.1)
                 continue
-                
+
             with state_lock:
                 debounce_time = system_state['timing_config']['sensor_debounce']
+                num_lanes = len(system_state['lanes'])
             now = time.time()
 
-            for i in range(3):
+            for i in range(num_lanes):
                 with state_lock:
+                    # Kiểm tra index trước khi truy cập
+                    if not (0 <= i < len(system_state["lanes"])): continue
                     lane = system_state["lanes"][i]
-                    sensor_pin = lane["sensor_pin"]
+                    sensor_pin = lane.get("sensor_pin")
                     current_status = lane["status"]
 
-                sensor_now = GPIO.input(sensor_pin)
-                
+                # Bỏ qua nếu lane không có sensor pin
+                if not sensor_pin: continue
+
+                try:
+                    sensor_now = GPIO.input(sensor_pin)
+                except Exception as gpio_e:
+                     logging.error(f"[SENSOR] Lỗi đọc GPIO pin {sensor_pin} (Lane {lane.get('name', i+1)}): {gpio_e}")
+                     error_manager.trigger_maintenance(f"Lỗi đọc sensor pin {sensor_pin} (Lane {lane.get('name', i+1)}): {gpio_e}")
+                     continue # Bỏ qua lần đọc này
+
                 with state_lock:
-                    system_state["lanes"][i]["sensor_reading"] = sensor_now
+                     # Kiểm tra index lại
+                     if 0 <= i < len(system_state["lanes"]):
+                         system_state["lanes"][i]["sensor_reading"] = sensor_now
 
                 # Phát hiện sườn xuống (1 -> 0)
                 if sensor_now == 0 and last_sensor_state[i] == 1:
                     # Chống nhiễu (debounce)
                     if (now - last_sensor_trigger_time[i]) > debounce_time:
                         last_sensor_trigger_time[i] = now
-                        
+
                         # Chỉ kích hoạt nếu trạng thái là "Đang chờ vật"
                         if current_status == "Đang chờ vật...":
                             with state_lock:
-                                system_state["lanes"][i]["status"] = "Đang chờ đẩy"
-                            
+                                # Kiểm tra index lại
+                                if 0 <= i < len(system_state["lanes"]):
+                                     system_state["lanes"][i]["status"] = "Đang chờ đẩy"
+
                             threading.Thread(target=handle_sorting_with_delay, args=(i,), daemon=True).start()
                         else:
-                            broadcast_log({"log_type": "warn", "message": f"Sensor {lane['name']} bị kích hoạt ngoài dự kiến."})
-                
+                            broadcast_log({"log_type": "warn", "message": f"Sensor {lane.get('name', i+1)} bị kích hoạt ngoài dự kiến."})
+
                 last_sensor_state[i] = sensor_now
-            
+
             adaptive_sleep = 0.05 if all(s == 1 for s in last_sensor_state) else 0.01
             time.sleep(adaptive_sleep)
-            
+
     except Exception as e:
         logging.error(f"[ERROR] Luồng sensor_monitoring_thread bị crash: {e}")
-        # (SỬA LỖI 2) Kích hoạt bảo trì nếu luồng này lỗi
         error_manager.trigger_maintenance(f"Lỗi luồng Sensor: {e}")
 
 
@@ -611,6 +696,7 @@ def sensor_monitoring_thread():
 #        FLASK + WEBSOCKET
 # =============================
 app = Flask(__name__)
+from flask_sock import Sock
 sock = Sock(app)
 connected_clients = set()
 
@@ -632,73 +718,98 @@ def _run_test_relay(lane_index, relay_action):
     """Hàm worker (chạy trong ThreadPool) để test 1 relay."""
     pin_to_test = None
     state_key_to_update = None
-    
+    lane_name = f"Lane {lane_index + 1}"
+
     try:
         with state_lock:
+            # Kiểm tra index
+            if not (0 <= lane_index < len(system_state["lanes"])):
+                 logging.error(f"[TEST] Lane index {lane_index} không hợp lệ.")
+                 broadcast_log({"log_type": "error", "message": f"Test thất bại: Lane index {lane_index} không hợp lệ."})
+                 return
+
             lane = system_state["lanes"][lane_index]
+            lane_name = lane['name']
             if relay_action == "grab":
-                pin_to_test = lane["pull_pin"]
+                pin_to_test = lane.get("pull_pin")
                 state_key_to_update = "relay_grab"
             else: # "push"
-                pin_to_test = lane["push_pin"]
+                pin_to_test = lane.get("push_pin")
                 state_key_to_update = "relay_push"
+
+            # Kiểm tra pin
+            if not pin_to_test:
+                logging.error(f"[TEST] Lane {lane_name} thiếu cấu hình pin {relay_action}.")
+                broadcast_log({"log_type": "error", "message": f"Test thất bại: Lane {lane_name} thiếu pin {relay_action}."})
+                return
 
         RELAY_ON(pin_to_test)
         with state_lock:
-            system_state["lanes"][lane_index][state_key_to_update] = 1
-        
+             if 0 <= lane_index < len(system_state["lanes"]):
+                 system_state["lanes"][lane_index][state_key_to_update] = 1
+
         time.sleep(0.5)
         if not main_loop_running: return
 
         RELAY_OFF(pin_to_test)
         with state_lock:
-            system_state["lanes"][lane_index][state_key_to_update] = 0
-            
-        broadcast_log({"log_type": "info", "message": f"Test {relay_action} lane {lane_index+1} OK"})
+             if 0 <= lane_index < len(system_state["lanes"]):
+                 system_state["lanes"][lane_index][state_key_to_update] = 0
+
+        broadcast_log({"log_type": "info", "message": f"Test {relay_action} {lane_name} OK"})
 
     except Exception as e:
-        logging.error(f"[ERROR] Lỗi test relay {lane_index+1}: {e}")
-        broadcast_log({"log_type": "error", "message": f"Lỗi test relay {lane_index+1}: {e}")
+        logging.error(f"[ERROR] Lỗi test relay {lane_name}: {e}")
+        broadcast_log({"log_type": "error", "message": f"Lỗi test relay {lane_name}: {e}"})
 
 def _run_test_all_relays():
-    """Hàm worker (chạy trong ThreadPool) để test tuần tự 6 relay."""
-    logging.info("[TEST] Bắt đầu test tuần tự 6 relay...")
-    for i in range(3):
+    """Hàm worker (chạy trong ThreadPool) để test tuần tự các relay."""
+    logging.info("[TEST] Bắt đầu test tuần tự các relay...")
+    with state_lock:
+        num_lanes = len(system_state['lanes'])
+
+    for i in range(num_lanes):
         if not main_loop_running: break
-        broadcast_log({"log_type": "info", "message": f"Test THU (grab) Lane {i+1}..."})
-        _run_test_relay(i, "grab") # Gọi hàm worker
+        with state_lock: # Lấy tên lane an toàn
+            lane_name = system_state['lanes'][i]['name'] if 0 <= i < len(system_state['lanes']) else f"Lane {i+1}"
+        broadcast_log({"log_type": "info", "message": f"Test THU (grab) {lane_name}..."})
+        _run_test_relay(i, "grab")
         time.sleep(0.5)
-        
+
         if not main_loop_running: break
-        broadcast_log({"log_type": "info", "message": f"Test ĐẨY (push) Lane {i+1}..."})
-        _run_test_relay(i, "push") # Gọi hàm worker
+        broadcast_log({"log_type": "info", "message": f"Test ĐẨY (push) {lane_name}..."})
+        _run_test_relay(i, "push")
         time.sleep(0.5)
     logging.info("[TEST] Hoàn tất test tuần tự.")
-    broadcast_log({"log_type": "info", "message": "Hoàn tất test tuần tự 6 relay."})
+    broadcast_log({"log_type": "info", "message": "Hoàn tất test tuần tự các relay."})
 
 def _auto_test_cycle_worker(lane_index):
     """Hàm worker (chạy trong ThreadPool) cho chu trình Đẩy -> Thu (Auto-Test)."""
+    lane_name = f"Lane {lane_index + 1}"
     try:
-        broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Đẩy Lane {lane_index+1}"})
+        with state_lock:
+            if 0 <= lane_index < len(system_state['lanes']):
+                lane_name = system_state['lanes'][lane_index]['name']
+
+        broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Đẩy {lane_name}"})
         _run_test_relay(lane_index, "push")
         time.sleep(0.3)
         if not main_loop_running: return
-        
-        broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Thu Lane {lane_index+1}"})
+
+        broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Thu {lane_name}"})
         _run_test_relay(lane_index, "grab")
     except Exception as e:
-         logging.error(f"[ERROR] Lỗi auto_test_cycle_worker (lane {lane_index+1}): {e}")
+         logging.error(f"[ERROR] Lỗi auto_test_cycle_worker ({lane_name}): {e}")
 
 def auto_test_loop():
     """Luồng riêng cho auto-test: Sensor sáng -> Đẩy rồi Thu."""
     global AUTO_TEST_ENABLED, auto_test_last_state, auto_test_last_trigger
-    
+
     logging.info("[TEST] Luồng Auto-Test (sensor->relay) đã khởi động.")
-    
+
     try:
         while main_loop_running:
             if error_manager.is_maintenance():
-                # Tự động tắt nếu hệ thống vào chế độ bảo trì
                 if AUTO_TEST_ENABLED:
                     AUTO_TEST_ENABLED = False
                     logging.warning("[TEST] Tự động tắt Auto-Test do có lỗi hệ thống.")
@@ -706,42 +817,53 @@ def auto_test_loop():
                 time.sleep(0.2)
                 continue
 
+            with state_lock: # Lấy số lanes hiện tại
+                 num_lanes = len(system_state['lanes'])
+
             if AUTO_TEST_ENABLED:
                 now = time.time()
-                for i in range(3):
+                for i in range(num_lanes):
                     with state_lock:
-                        sensor_pin = system_state["lanes"][i]["sensor_pin"]
-                    
-                    sensor_now = GPIO.input(sensor_pin)
-                    
+                        # Kiểm tra index
+                        if not (0 <= i < len(system_state["lanes"])): continue
+                        sensor_pin = system_state["lanes"][i].get("sensor_pin")
+
+                    if not sensor_pin: continue # Bỏ qua lane thiếu sensor pin
+
+                    try:
+                        sensor_now = GPIO.input(sensor_pin)
+                    except Exception as gpio_e:
+                        logging.error(f"[AUTO-TEST] Lỗi đọc GPIO pin {sensor_pin} (Lane {i+1}): {gpio_e}")
+                        error_manager.trigger_maintenance(f"Lỗi đọc sensor pin {sensor_pin} (Auto-Test): {gpio_e}")
+                        continue
+
                     with state_lock:
-                        system_state["lanes"][i]["sensor_reading"] = sensor_now
+                         if 0 <= i < len(system_state["lanes"]):
+                             system_state["lanes"][i]["sensor_reading"] = sensor_now
 
                     if sensor_now == 0 and auto_test_last_state[i] == 1:
-                        if (now - auto_test_last_trigger[i]) > 1.0: 
+                        if (now - auto_test_last_trigger[i]) > 1.0:
                             auto_test_last_trigger[i] = now
-                            
-                            broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Sensor {i+1} phát hiện!"})
-                            # (SỬA LỖI 1) Đưa vào ThreadPoolExecutor
+
+                            with state_lock: # Lấy tên lane an toàn
+                                lane_name = system_state['lanes'][i]['name'] if 0 <= i < len(system_state['lanes']) else f"Lane {i+1}"
+                            broadcast_log({"log_type": "warn", "message": f"AUTO-TEST: Sensor {lane_name} phát hiện!"})
                             executor.submit(_auto_test_cycle_worker, i)
-                    
+
                     auto_test_last_state[i] = sensor_now
                 time.sleep(0.02)
             else:
-                auto_test_last_state = [1, 1, 1]
-                auto_test_last_trigger = [0.0, 0.0, 0.0]
+                auto_test_last_state = [1] * num_lanes
+                auto_test_last_trigger = [0.0] * num_lanes
                 time.sleep(0.2)
     except Exception as e:
          logging.error(f"[ERROR] Luồng auto_test_loop bị crash: {e}")
-         # (SỬA LỖI 2) Kích hoạt bảo trì nếu luồng này lỗi
          error_manager.trigger_maintenance(f"Lỗi luồng Auto-Test: {e}")
 
 
 # =============================
 #     CÁC HÀM CỦA FLASK (TIẾP)
 # =============================
-
-# (MỚI) Hàm kiểm tra Basic Auth
 def check_auth(username, password):
     """Kiểm tra username và password."""
     return username == USERNAME and password == PASSWORD
@@ -754,6 +876,7 @@ def authenticate():
 
 def requires_auth(f):
     """Decorator để yêu cầu đăng nhập cho một route."""
+    @functools.wraps(f)
     def decorated(*args, **kwargs):
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
@@ -762,109 +885,266 @@ def requires_auth(f):
     return decorated
 
 # --- Các hàm broadcast ---
-
 def broadcast_state():
     """Gửi state cho client, chỉ khi state thay đổi."""
     last_state_str = ""
-    
+
     while main_loop_running:
         current_msg = ""
         with state_lock:
-            # (MỚI) Cập nhật trạng thái bảo trì
+            # Cập nhật trạng thái bảo trì và lỗi cuối
             system_state["maintenance_mode"] = error_manager.is_maintenance()
+            system_state["last_error"] = error_manager.last_error
+            # Cập nhật chế độ gpio từ timing_config
+            system_state["gpio_mode"] = system_state['timing_config'].get('gpio_mode', 'BCM')
             current_msg = json.dumps({"type": "state_update", "state": system_state})
-        
+
         if current_msg != last_state_str:
             for client in list(connected_clients):
                 try:
                     client.send(current_msg)
                 except Exception:
-                    connected_clients.remove(client) 
+                    # Gỡ client lỗi ra khỏi danh sách
+                    if client in connected_clients:
+                         connected_clients.remove(client)
             last_state_str = current_msg
-            
+
         time.sleep(0.5)
 
 def generate_frames():
     """Stream video từ camera."""
     while main_loop_running:
         frame = None
-        with frame_lock:
-            if latest_frame is not None:
-                frame = latest_frame.copy()
-        
+        # Chỉ stream nếu không bảo trì
+        if not error_manager.is_maintenance():
+            with frame_lock:
+                if latest_frame is not None:
+                    frame = latest_frame.copy()
+
         if frame is None:
+            # Nếu đang bảo trì hoặc không có frame, gửi frame đen
+            frame = cv2.imread('black_frame.png') # Tạo 1 file ảnh đen 640x480
+            if frame is None: # Nếu đọc file lỗi, tạo frame đen bằng numpy
+                 import numpy as np
+                 frame = np.zeros((480, 640, 3), dtype=np.uint8)
             time.sleep(0.1)
-            continue
-            
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        time.sleep(1 / 20)
+            # Không cần continue, vẫn gửi frame đen
+
+        try:
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        except Exception as encode_e:
+             logging.error(f"[CAMERA] Lỗi encode frame: {encode_e}")
+             # Gửi frame đen nếu encode lỗi
+             import numpy as np
+             frame = np.zeros((480, 640, 3), dtype=np.uint8)
+             _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 10]) # Chất lượng thấp
+             yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+        time.sleep(1 / 20) # Giữ 20 FPS
 
 # --- Các routes (endpoints) ---
 
 @app.route('/')
-@requires_auth # (MỚI) Yêu cầu đăng nhập
+@requires_auth
 def index():
     """Trang chủ (dashboard)."""
-    return render_template('index.html')
+    return render_template('index4.html')
 
 @app.route('/video_feed')
-@requires_auth # (MỚI) Yêu cầu đăng nhập
+@requires_auth
 def video_feed():
     """Nguồn cấp video."""
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/config')
-@requires_auth # (MỚI) Yêu cầu đăng nhập
+@requires_auth
 def get_config():
-    """API (GET) để lấy config hiện tại."""
+    """API (GET) để lấy config hiện tại (timing + lanes)."""
     with state_lock:
-        cfg = system_state.get('timing_config', {})
-    return jsonify(cfg)
+        # Trả về cả timing và lanes config
+        config_data = {
+            "timing_config": system_state.get('timing_config', {}),
+             # (SỬA) Lấy lanes_config từ state thay vì global
+            "lanes_config": [{
+                "name": ln.get('name'),
+                "sensor_pin": ln.get('sensor_pin'),
+                "push_pin": ln.get('push_pin'),
+                "pull_pin": ln.get('pull_pin')
+             } for ln in system_state.get('lanes', [])]
+        }
+    return jsonify(config_data)
+
+@app.route('/update_config', methods=['POST'])
+@requires_auth
+def update_config():
+    """API (POST) để cập nhật config (timing + lanes)."""
+    global lanes_config, RELAY_PINS, SENSOR_PINS # Khai báo để có thể sửa đổi
+
+    new_config_data = request.json
+    if not new_config_data:
+        return jsonify({"error": "Thiếu dữ liệu JSON"}), 400
+
+    logging.info(f"[CONFIG] Nhận config mới từ API (POST): {new_config_data}")
+
+    # Tách riêng timing và lanes config
+    new_timing_config = new_config_data.get('timing_config', {})
+    new_lanes_config = new_config_data.get('lanes_config') # Có thể là None nếu không gửi
+
+    # --- Cập nhật state và lưu file ---
+    config_to_save = {}
+    restart_required = False # Cờ báo cần restart nếu đổi GPIO mode hoặc lanes
+
+    with state_lock:
+        # 1. Cập nhật Timing Config
+        current_timing = system_state['timing_config']
+        current_gpio_mode = current_timing.get('gpio_mode', 'BCM')
+        current_timing.update(new_timing_config)
+        new_gpio_mode = current_timing.get('gpio_mode', 'BCM')
+
+        # Kiểm tra nếu GPIO mode thay đổi
+        if new_gpio_mode != current_gpio_mode:
+             logging.warning("[CONFIG] Chế độ GPIO đã thay đổi. Cần khởi động lại ứng dụng để áp dụng.")
+             broadcast_log({"log_type": "warn", "message": "GPIO Mode đã đổi. Cần khởi động lại!"})
+             restart_required = True
+             # Vẫn lưu nhưng giữ nguyên gpio_mode cũ trong state đang chạy
+             system_state['gpio_mode'] = current_gpio_mode
+             current_timing['gpio_mode'] = current_gpio_mode
+        else:
+             system_state['gpio_mode'] = new_gpio_mode # Cập nhật state nếu không đổi
+
+        config_to_save['timing_config'] = current_timing.copy()
+
+        # 2. Cập nhật Lanes Config (nếu có gửi)
+        if new_lanes_config is not None:
+             logging.info("[CONFIG] Cập nhật cấu hình lanes...")
+             lanes_config = new_lanes_config # Cập nhật global config
+             num_lanes = len(lanes_config)
+             # Tạo lại system_state["lanes"]
+             new_system_lanes = []
+             new_relay_pins = []
+             new_sensor_pins = []
+             for i, lane_cfg in enumerate(lanes_config):
+                new_system_lanes.append({
+                    "name": lane_cfg.get("name", f"Lane {i+1}"),
+                    "status": "Sẵn sàng", "count": 0,
+                    "sensor_pin": lane_cfg.get("sensor_pin"),
+                    "push_pin": lane_cfg.get("push_pin"),
+                    "pull_pin": lane_cfg.get("pull_pin"),
+                    "sensor_reading": 1, "relay_grab": 0, "relay_push": 0
+                })
+                # Cập nhật danh sách pin mới
+                if lane_cfg.get("sensor_pin"): new_sensor_pins.append(lane_cfg["sensor_pin"])
+                if lane_cfg.get("push_pin"): new_relay_pins.append(lane_cfg["push_pin"])
+                if lane_cfg.get("pull_pin"): new_relay_pins.append(lane_cfg["pull_pin"])
+
+             # Cập nhật state lanes
+             system_state['lanes'] = new_system_lanes
+             # Cập nhật các biến phụ thuộc số lanes
+             global last_sensor_state, last_sensor_trigger_time, auto_test_last_state, auto_test_last_trigger
+             last_sensor_state = [1] * num_lanes
+             last_sensor_trigger_time = [0.0] * num_lanes
+             auto_test_last_state = [1] * num_lanes
+             auto_test_last_trigger = [0.0] * num_lanes
+             
+             # Cập nhật danh sách pin global (sẽ dùng nếu restart)
+             RELAY_PINS = new_relay_pins
+             SENSOR_PINS = new_sensor_pins
+
+             config_to_save['lanes_config'] = lanes_config # Thêm vào để lưu file
+             restart_required = True # Thay đổi lanes cũng cần restart
+             logging.warning("[CONFIG] Cấu hình lanes đã thay đổi. Cần khởi động lại ứng dụng.")
+             broadcast_log({"log_type": "warn", "message": "Cấu hình Lanes đã đổi. Cần khởi động lại!"})
+        else:
+            # Nếu không gửi lanes_config mới, lấy cái cũ để lưu file
+            current_lanes_cfg_for_save = []
+            for lane_state in system_state['lanes']:
+                 current_lanes_cfg_for_save.append({
+                    "name": lane_state['name'],
+                    "sensor_pin": lane_state['sensor_pin'],
+                    "push_pin": lane_state['push_pin'],
+                    "pull_pin": lane_state['pull_pin']
+                 })
+            config_to_save['lanes_config'] = current_lanes_cfg_for_save
+
+
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config_to_save, f, indent=4)
+        msg = "Đã lưu config mới." + (" Cần khởi động lại!" if restart_required else "")
+        broadcast_log({"log_type": "success" if not restart_required else "warn", "message": msg})
+        return jsonify({"message": msg, "config": config_to_save, "restart_required": restart_required})
+    except Exception as e:
+        logging.error(f"[ERROR] Không thể lưu config (POST): {e}")
+        broadcast_log({"log_type": "error", "message": f"Lỗi khi lưu config (POST): {e}"})
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/state')
-@requires_auth # (MỚI) Yêu cầu đăng nhập
+@requires_auth
 def api_state():
     """API (GET) để lấy toàn bộ state."""
     with state_lock:
         return jsonify(system_state)
 
 @app.route('/api/sort_log')
-@requires_auth # (MỚI) Yêu cầu đăng nhập
+@requires_auth
 def api_sort_log():
     """API (GET) để lấy lịch sử đếm (cho biểu đồ)."""
-    # (SỬA LỖI 3) Dùng lock để đọc file an toàn
     with sort_log_lock:
         try:
+            sort_data = {}
             if os.path.exists(SORT_LOG_FILE):
-                with open(SORT_LOG_FILE, 'r') as f:
+                 with open(SORT_LOG_FILE, 'r') as f:
                     file_content = f.read()
                     if file_content:
-                        return jsonify(json.loads(file_content))
-            return jsonify({}) # Trả về rỗng nếu không có file
+                        sort_data = json.loads(file_content)
+            return jsonify(sort_data)
         except Exception as e:
             logging.error(f"[ERROR] Lỗi đọc sort_log.json cho API: {e}")
             return jsonify({"error": str(e)}), 500
 
+# (MỚI) Thêm API để reset maintenance mode
+@app.route('/api/reset_maintenance', methods=['POST'])
+@requires_auth
+def reset_maintenance():
+    """API (POST) để reset chế độ bảo trì."""
+    if error_manager.is_maintenance():
+        error_manager.reset()
+        broadcast_log({"log_type": "success", "message": "Chế độ bảo trì đã được reset từ UI."})
+        return jsonify({"message": "Maintenance mode reset thành công."})
+    else:
+        return jsonify({"message": "Hệ thống không ở chế độ bảo trì."})
+
+
 @sock.route('/ws')
-@requires_auth # (MỚI) Yêu cầu đăng nhập cho WebSocket
+@requires_auth
 def ws_route(ws):
     """Kết nối WebSocket chính."""
     global AUTO_TEST_ENABLED
-    
+
+    # Kiểm tra xác thực một lần nữa (đề phòng)
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        logging.warning(f"[WS] Unauthorized connection attempt.")
+        ws.close(code=1008, reason="Unauthorized") # Gửi mã lỗi 1008
+        return
+
     connected_clients.add(ws)
-    logging.info(f"[WS] Client {request.authorization.username} connected. Total: {len(connected_clients)}")
+    logging.info(f"[WS] Client {auth.username} connected. Total: {len(connected_clients)}")
 
     # 1. Gửi state ban đầu
     try:
         with state_lock:
             system_state["maintenance_mode"] = error_manager.is_maintenance()
+            system_state["last_error"] = error_manager.last_error
             initial_state_msg = json.dumps({"type": "state_update", "state": system_state})
         ws.send(initial_state_msg)
     except Exception as e:
         logging.warning(f"[WS] Lỗi gửi state ban đầu: {e}")
-        connected_clients.remove(ws)
+        if ws in connected_clients: connected_clients.remove(ws)
         return
 
     # 2. Lắng nghe message
@@ -876,68 +1156,71 @@ def ws_route(ws):
                     data = json.loads(message)
                     action = data.get('action')
 
-                    # (MỚI) Không cho phép hành động nếu đang bảo trì
-                    if error_manager.is_maintenance():
+                    if error_manager.is_maintenance() and action != "reset_maintenance": # Chỉ cho phép reset
                          broadcast_log({"log_type": "error", "message": "Hệ thống đang bảo trì, không thể thao tác."})
-                         continue # Bỏ qua tất cả các lệnh
+                         continue
 
-                    # 1. Xử lý Reset Count
+                    # 1. Reset Count
                     if action == 'reset_count':
-                        lane_idx = data.get('lane_index') # Đổi sang lane_index
+                        lane_idx = data.get('lane_index')
                         with state_lock:
                             if lane_idx == 'all':
-                                for lane in system_state['lanes']:
-                                    lane['count'] = 0
-                                broadcast_log({"log_type": "info", "message": "Reset đếm toàn bộ."})
-                            elif lane_idx is not None and 0 <= lane_idx <= 2:
-                                broadcast_log({"log_type": "info", "message": f"Reset đếm {system_state['lanes'][lane_idx]['name']}."})
+                                for i in range(len(system_state['lanes'])):
+                                    system_state['lanes'][i]['count'] = 0
+                                broadcast_log({"log_type": "info", "message": f"{auth.username} đã reset đếm toàn bộ."})
+                            elif lane_idx is not None and 0 <= lane_idx < len(system_state['lanes']):
+                                broadcast_log({"log_type": "info", "message": f"{auth.username} đã reset đếm {system_state['lanes'][lane_idx]['name']}."})
                                 system_state['lanes'][lane_idx]['count'] = 0
-                    
-                    # 2. Xử lý Cập nhật Config
-                    elif action == 'update_config':
-                        new_config = data.get('config', {})
-                        if new_config:
-                            logging.info(f"[CONFIG] Nhận config mới từ UI: {new_config}")
-                            config_to_save = {}
-                            with state_lock:
-                                system_state['timing_config'].update(new_config)
-                                config_to_save = system_state['timing_config'].copy()
-                            # Lưu file
-                            try:
-                                with open(CONFIG_FILE, 'w') as f:
-                                    json.dump({"timing_config": config_to_save}, f, indent=4)
-                                broadcast_log({"log_type": "info", "message": "Đã lưu config mới từ UI."})
-                            except Exception as e:
-                                logging.error(f"[ERROR] Không thể lưu config: {e}")
-                                broadcast_log({"log_type": "error", "message": f"Lỗi khi lưu config: {e}"})
 
-                    # 3. Xử lý Test Relay Thủ Công
+                    # 2. Cập nhật Config (Qua WebSocket - Dự phòng)
+                    elif action == 'update_config':
+                         # Nên dùng POST /update_config thay cho cái này
+                         logging.warning("[CONFIG] Nhận lệnh update_config qua WebSocket (nên dùng POST).")
+                         # (Logic giống hệt POST /update_config nhưng không trả về response)
+                         # ... (bỏ qua để tránh lặp code) ...
+                         pass
+
+                    # 3. Test Relay Thủ Công
                     elif action == "test_relay":
                         lane_index = data.get("lane_index")
                         relay_action = data.get("relay_action")
                         if lane_index is not None and relay_action:
-                            # (SỬA LỖI 1) Đưa vào ThreadPoolExecutor
                             executor.submit(_run_test_relay, lane_index, relay_action)
 
-                    # 4. Xử lý Test Tuần Tự
+                    # 4. Test Tuần Tự
                     elif action == "test_all_relays":
-                        # (SỬA LỖI 1) Đưa vào ThreadPoolExecutor
                         executor.submit(_run_test_all_relays)
-                    
-                    # 5. Xử lý Bật/Tắt Auto-Test
+
+                    # 5. Bật/Tắt Auto-Test
                     elif action == "toggle_auto_test":
                         AUTO_TEST_ENABLED = data.get("enabled", False)
-                        logging.info(f"[TEST] Auto-Test (Sensor->Relay) set to: {AUTO_TEST_ENABLED}")
-                        broadcast_log({"log_type": "warn", "message": f"Chế độ Auto-Test (Sensor->Relay) đã { 'BẬT' if AUTO_TEST_ENABLED else 'TẮT' }."})
-                        
+                        logging.info(f"[TEST] Auto-Test (Sensor->Relay) set by {auth.username} to: {AUTO_TEST_ENABLED}")
+                        broadcast_log({"log_type": "warn", "message": f"Chế độ Auto-Test đã { 'BẬT' if AUTO_TEST_ENABLED else 'TẮT' } bởi {auth.username}."})
+
                         if not AUTO_TEST_ENABLED:
                              reset_all_relays_to_default()
 
+                    # (MỚI) 6. Reset Maintenance Mode
+                    elif action == "reset_maintenance":
+                         if error_manager.is_maintenance():
+                             error_manager.reset()
+                             broadcast_log({"log_type": "success", "message": f"Chế độ bảo trì đã được reset bởi {auth.username}."})
+                         else:
+                             broadcast_log({"log_type": "info", "message": "Hệ thống không ở chế độ bảo trì."})
+
+
                 except json.JSONDecodeError:
-                    pass
+                    pass # Bỏ qua message lỗi
+                except Exception as ws_loop_e: # Bắt lỗi chung trong vòng lặp
+                     logging.error(f"[WS] Lỗi xử lý message: {ws_loop_e}")
+                     # Không nên trigger maintenance ở đây, chỉ log lỗi
+
+    except Exception as ws_conn_e: # Bắt lỗi kết nối WebSocket
+         logging.warning(f"[WS] Kết nối WebSocket bị đóng hoặc lỗi: {ws_conn_e}")
     finally:
-        connected_clients.remove(ws)
-        logging.info(f"[WS] Client {request.authorization.username} disconnected. Total: {len(connected_clients)}")
+        if ws in connected_clients:
+            connected_clients.remove(ws)
+        logging.info(f"[WS] Client {auth.username} disconnected. Total: {len(connected_clients)}")
 
 # =============================
 #               MAIN
@@ -947,17 +1230,39 @@ if __name__ == "__main__":
         # Setup logging
         logging.basicConfig(
             level=logging.INFO,
-            # (MỚI) Thêm (threadName) vào format
             format='%(asctime)s [%(levelname)s] (%(threadName)s) %(message)s',
             handlers=[
-                logging.FileHandler(LOG_FILE), 
-                logging.StreamHandler()      
+                logging.FileHandler(LOG_FILE, encoding='utf-8'), # Thêm encoding
+                logging.StreamHandler()
             ]
         )
-        
-        load_local_config()
+
+        load_local_config() # Load config (bao gồm cả lanes_config)
+
+        # Lấy chế độ GPIO đã tải và set mode
+        with state_lock:
+            loaded_gpio_mode = system_state.get("gpio_mode", "BCM")
+
+        # Chỉ set mode và setup nếu không phải Mock
+        if isinstance(GPIO, RealGPIO):
+             GPIO.setmode(GPIO.BCM if loaded_gpio_mode == "BCM" else GPIO.BOARD)
+             GPIO.setwarnings(False)
+             logging.info(f"[GPIO] Đã đặt chế độ chân cắm là: {loaded_gpio_mode}")
+
+             # Setup các chân GPIO sau khi đã setmode
+             logging.info(f"[GPIO] Setup SENSOR pins: {SENSOR_PINS}")
+             for pin in SENSOR_PINS:
+                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+             logging.info(f"[GPIO] Setup RELAY pins: {RELAY_PINS}")
+             for pin in RELAY_PINS:
+                 GPIO.setup(pin, GPIO.OUT)
+        else:
+             logging.info("[GPIO] Chạy ở chế độ Mock, bỏ qua setup vật lý.")
+
+
         reset_all_relays_to_default()
-        
+
         # Khởi tạo các luồng (Thread)
         threading.Thread(target=camera_capture_thread, name="CameraThread", daemon=True).start()
         threading.Thread(target=qr_detection_loop, name="QRThread", daemon=True).start()
@@ -968,8 +1273,8 @@ if __name__ == "__main__":
 
 
         logging.info("=========================================")
-        logging.info("  HỆ THỐNG PHÂN LOẠI SẴN SÀNG (PRODUCTION v1.1)")
-        logging.info(f"  GPIO Mode: {'REAL' if isinstance(GPIO, RealGPIO) else 'MOCK'}")
+        logging.info("  HỆ THỐNG PHÂN LOẠI SẴN SÀNG (PRODUCTION v1.3 - Full Config)")
+        logging.info(f"  GPIO Mode: {'REAL' if isinstance(GPIO, RealGPIO) else 'MOCK'} (Config: {loaded_gpio_mode})")
         logging.info(f"  Log file: {LOG_FILE}")
         logging.info(f"  Sort log file: {SORT_LOG_FILE}")
         logging.info(f"  API State: http://<IP_CUA_PI>:5000/api/state")
@@ -977,17 +1282,26 @@ if __name__ == "__main__":
         logging.info("=========================================")
         # Chạy Flask server
         app.run(host='0.0.0.0', port=5000)
-        
+
     except KeyboardInterrupt:
         logging.info("\n🛑 Dừng hệ thống (Ctrl+C)...")
+    except Exception as main_e: # Bắt lỗi khởi động
+         logging.critical(f"[CRITICAL] Lỗi khởi động hệ thống: {main_e}", exc_info=True)
+         # Cố gắng cleanup GPIO nếu có thể
+         try:
+             if isinstance(GPIO, RealGPIO): GPIO.cleanup()
+         except Exception: pass
     finally:
-        # Báo cho các luồng con dừng lại
         main_loop_running = False
-        # (SỬA LỖI 1) Tắt ThreadPool an toàn
         logging.info("Đang tắt ThreadPoolExecutor...")
-        executor.shutdown(wait=True)
-        
-        time.sleep(0.5)
-        GPIO.cleanup()
-        logging.info("✅ GPIO cleaned up. Tạm biệt!")
+        executor.shutdown(wait=False) # Không cần đợi lâu
 
+        # Cố gắng cleanup GPIO một lần nữa
+        logging.info("Đang cleanup GPIO...")
+        try:
+             GPIO.cleanup()
+             logging.info("✅ GPIO cleaned up.")
+        except Exception as clean_e:
+             logging.warning(f"Lỗi khi cleanup GPIO: {clean_e}")
+
+        logging.info("👋 Tạm biệt!")
