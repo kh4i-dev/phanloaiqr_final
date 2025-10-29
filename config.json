@@ -1,0 +1,8 @@
+{
+  "timing_config": {
+    "cycle_delay": 0.3,
+    "settle_delay": 0.2,
+    "sensor_debounce": 0.1,
+    "push_delay": 0.5
+  }
+}
