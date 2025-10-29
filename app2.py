@@ -21,7 +21,7 @@ ACTIVE_LOW = True  # Nếu relay kích bằng mức LOW thì True, ngược lạ
 # Lưu ý: Dùng GPIO.BCM sẽ tốt hơn GPIO.BOARD vì nó nhất quán
 # trên các model Pi khác nhau. Tuy nhiên, nếu bạn đã đi dây
 # theo BOARD, hãy giữ nguyên.
-GGPIO.setmode(GPIO.BCM)
+GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
 # --- Relay ---
