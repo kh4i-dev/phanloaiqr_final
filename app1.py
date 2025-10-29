@@ -19,6 +19,15 @@ ACTIVE_LOW = True  # Nếu relay kích bằng mức LOW thì True, ngược lạ
 GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
 
+define_pins = {
+    "P1_PUSH": 11,
+    "P1_PULL": 12,
+    "P2_PUSH": 13,
+    "P2_PULL": 8,
+    "P3_PUSH": 15,
+    "P3_PULL": 7,
+}
+
 # Cặp (push, pull) cho mỗi lane
 RELAY_PINS = {
     0: {'push': 11, 'pull': 12},
