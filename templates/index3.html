@@ -605,7 +605,7 @@
                 cycle_delay: parseFloat(document.getElementById('config-cycle_delay').value),
                 settle_delay: parseFloat(document.getElementById('config-settle_delay').value),
                 sensor_debounce: parseFloat(document.getElementById('config-sensor_debounce').value),
-                // (SỬA LỖI) Sửa 'config_push_delay' thành 'config-push_delay'
+                // (SỬA LỖI) Sửa 'config_push_delay' thành 'config_push_delay'
                 push_delay: parseFloat(document.getElementById('config-push_delay').value)
             };
             ws.send(JSON.stringify({ action: "update_config", config: newConfig }));
