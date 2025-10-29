@@ -21,21 +21,21 @@ ACTIVE_LOW = True  # Nếu relay kích bằng mức LOW thì True, ngược lạ
 # Lưu ý: Dùng GPIO.BCM sẽ tốt hơn GPIO.BOARD vì nó nhất quán
 # trên các model Pi khác nhau. Tuy nhiên, nếu bạn đã đi dây
 # theo BOARD, hãy giữ nguyên.
-GPIO.setmode(GPIO.BOARD)
+GGPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 
-# --- Relay (piston) ---
-P1_PUSH = 11
-P1_PULL = 12
-P2_PUSH = 13
-P2_PULL = 8
-P3_PUSH = 15
-P3_PULL = 7
+# --- Relay ---
+P1_PUSH = 17   # BOARD 11
+P1_PULL = 18   # BOARD 12
+P2_PUSH = 27   # BOARD 13
+P2_PULL = 14   # BOARD 8
+P3_PUSH = 22   # BOARD 15
+P3_PULL = 4    # BOARD 7
 
-# --- Sensor ---
-SENSOR1 = 5
-SENSOR2 = 16
-SENSOR3 = 18
+# --- Sensor ---git p
+SENSOR1 = 3    # BOARD 5
+SENSOR2 = 23   # BOARD 16
+SENSOR3 = 24   # BOARD 18
 
 # Danh sách setup GPIO (chỉ dùng để setup ban đầu)
 RELAY_PINS = [P1_PUSH, P1_PULL, P2_PUSH, P2_PULL, P3_PUSH, P3_PULL]
