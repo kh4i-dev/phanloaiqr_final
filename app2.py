@@ -251,7 +251,7 @@ def qr_detection_loop():
             else:
                 broadcast_log({"log_type": "unknown_qr", "data": data_upper})
         
-        time.sleep(0.1) # Quét QR 10 lần/giây
+        time.sleep(0.05) # Quét QR 20 lần/giây
 
 # =============================
 #      LUỒNG GIÁM SÁT SENSOR
@@ -347,7 +347,7 @@ def generate_frames():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index2.html')
 
 @app.route('/video_feed')
 def video_feed():

@@ -1,177 +1,286 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bảng Điều Khiển Hệ Thống Phân Loại (Local)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Inter', sans-serif; }
-    .status-card, .log-card { transition: all 0.25s ease-in-out; }
-    .log-item { animation: fadeIn 0.4s ease-out; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-5px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Phân Loại</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: Inter, sans-serif;
+        }
+
+        .sensor-light {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            transition: background-color 0.3s;
+        }
+
+        .sensor-active {
+            background-color: #f59e0b;
+        }
+
+        /* Vàng */
+        .sensor-inactive {
+            background-color: #6b7280;
+        }
+
+        /* Xám */
+
+        .relay-light {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            transition: background-color 0.3s;x
+        }
+
+        .relay-active {
+            background-color: #22c55e;
+        }
+
+        /* Xanh */
+        .relay-inactive {
+            background-color: #ef4444;
+        }
+
+        /* Đỏ */
+    </style>
 </head>
 
-<body class="bg-gray-900 text-white">
+<body class="bg-gray-100 text-gray-900 p-4 md:p-8">
 
-  <div class="container mx-auto p-4 md:p-6">
-    <header class="text-center mb-6">
-      <h1 class="text-3xl md:text-4xl font-bold text-green-400">⚙️ Hệ Thống Phân Loại Sản Phẩm (Local)</h1>
-      <p class="text-gray-400 mt-1">Giám sát và điều khiển thời gian thực</p>
-    </header>
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Bảng điều khiển Hệ Thống Phân Loại</h1>
 
-    <main class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- CỘT TRÁI: CAMERA + LOG -->
-      <div class="flex flex-col gap-6">
-        <section class="bg-gray-800 rounded-2xl shadow-lg p-5">
-          <h2 class="text-2xl font-semibold mb-3 border-b border-gray-700 pb-2">🎥 Camera Giám Sát</h2>
-          <div class="aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center">
-            <img id="camera-feed" src="{{ url_for('video_feed') }}" alt="Camera Feed" class="w-full h-full object-cover">
-          </div>
-        </section>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <section class="log-card bg-gray-800 rounded-2xl shadow-lg p-5 flex flex-col" style="height: 40vh;">
-          <h2 class="text-2xl font-semibold mb-3 border-b border-gray-700 pb-2">📜 Nhật Ký Hệ Thống</h2>
-          <div id="log-container" class="space-y-2 overflow-y-auto flex-grow pr-2"></div>
-        </section>
-      </div>
+            <!-- Cột Camera và Logs -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Camera -->
+                <div class="bg-white p-4 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-3">Camera Feed</h2>
+                    <div class="bg-black rounded-md overflow-hidden aspect-video">
+                        <img id="video_feed" src="/video_feed" alt="Video Stream" class="w-full h-full object-contain">
+                    </div>
+                </div>
 
-      <!-- CỘT PHẢI: TRẠNG THÁI -->
-      <section class="bg-gray-800 rounded-2xl shadow-lg p-5 flex flex-col">
-        <div class="flex items-center justify-between mb-3 border-b border-gray-700 pb-2">
-          <h2 class="text-2xl font-semibold">Trạng Thái Dây Chuyền</h2>
-          <span id="connection-status" class="text-sm font-semibold text-yellow-400">● Đang kết nối...</span>
+                <!-- Logs -->
+                <div class="bg-white p-4 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-3">Nhật ký hoạt động</h2>
+                    <div id="log-container"
+                        class="h-64 bg-gray-900 text-white font-mono text-sm p-3 rounded-md overflow-y-scroll space-y-1">
+                        <!-- Logs sẽ được thêm vào đây -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột Trạng thái Lanes -->
+            <div class="lg:col-span-1 space-y-6">
+
+                <!-- Trạng thái Lanes -->
+                <div class="bg-white p-4 rounded-lg shadow-md">
+                    <h2 class="text-xl font-semibold mb-3">Trạng thái Lanes</h2>
+                    <div id="lanes-container" class="space-y-4">
+                        <!-- Lane 1 -->
+                        <div id="lane-0" class="border border-gray-200 p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-lg font-bold">Loại 1</h3>
+                                <span id="lane-0-status"
+                                    class="text-sm font-medium px-3 py-1 rounded-full bg-gray-200 text-gray-800">...</span>
+                            </div>
+                            <div class="flex justify-between items-center text-lg mb-3">
+                                <span>Đã đếm:</span>
+                                <span id="lane-0-count" class="font-bold text-2xl">0</span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm">
+                                <span>Cảm biến:</span>
+                                <div id="lane-0-sensor" class="sensor-light sensor-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Thu:</span>
+                                <div id="lane-0-grab" class="relay-light relay-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Đẩy:</span>
+                                <div id="lane-0-push" class="relay-light relay-inactive"></div>
+                            </div>
+                            <button onclick="resetCount(0)"
+                                class="mt-3 w-full text-sm bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-3 rounded">Reset
+                                Đếm</button>
+                        </div>
+
+                        <!-- Lane 2 -->
+                        <div id="lane-1" class="border border-gray-200 p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-lg font-bold">Loại 2</h3>
+                                <span id="lane-1-status"
+                                    class="text-sm font-medium px-3 py-1 rounded-full bg-gray-200 text-gray-800">...</span>
+                            </div>
+                            <div class="flex justify-between items-center text-lg mb-3">
+                                <span>Đã đếm:</span>
+                                <span id="lane-1-count" class="font-bold text-2xl">0</span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm">
+                                <span>Cảm biến:</span>
+                                <div id="lane-1-sensor" class="sensor-light sensor-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Thu:</span>
+                                <div id="lane-1-grab" class="relay-light relay-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Đẩy:</span>
+                                <div id="lane-1-push" class="relay-light relay-inactive"></div>
+                            </div>
+                            <button onclick="resetCount(1)"
+                                class="mt-3 w-full text-sm bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-3 rounded">Reset
+                                Đếm</button>
+                        </div>
+
+                        <!-- Lane 3 -->
+                        <div id="lane-2" class="border border-gray-200 p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-lg font-bold">Loại 3</h3>
+                                <span id="lane-2-status"
+                                    class="text-sm font-medium px-3 py-1 rounded-full bg-gray-200 text-gray-800">...</span>
+                            </div>
+                            <div class="flex justify-between items-center text-lg mb-3">
+                                <span>Đã đếm:</span>
+                                <span id="lane-2-count" class="font-bold text-2xl">0</span>
+                            </div>
+                            <div class="flex justify-between items-center text-sm">
+                                <span>Cảm biến:</span>
+                                <div id="lane-2-sensor" class="sensor-light sensor-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Thu:</span>
+                                <div id="lane-2-grab" class="relay-light relay-inactive"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-sm mt-2">
+                                <span>Relay Đẩy:</span>
+                                <div id="lane-2-push" class="relay-light relay-inactive"></div>
+                            </div>
+                            <button onclick="resetCount(2)"
+                                class="mt-3 w-full text-sm bg-yellow-500 hover:bg-yellow-600 text-white py-1 px-3 rounded">Reset
+                                Đếm</button>
+                        </div>
+                    </div>
+                    <button onclick="resetCount('all')"
+                        class="mt-4 w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded font-bold">Reset
+                        Toàn Bộ</button>
+                </div>
+
+            </div>
         </div>
-        <div id="lanes-container" class="space-y-4 overflow-y-auto flex-grow pr-2"></div>
-      </section>
-    </main>
-  </div>
+    </div>
 
-  <script>
-    const lanesContainer = document.getElementById("lanes-container");
-    const connectionStatus = document.getElementById("connection-status");
-    const logContainer = document.getElementById("log-container");
+    <script>
+        let ws;
 
-    const initialLanes = [
-      { name: "Loại 1", icon: "🥇" },
-      { name: "Loại 2", icon: "🥈" },
-      { name: "Loại 3", icon: "🥉" },
-    ];
+        function connectWebSocket() {
+            const ws_protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+            ws = new WebSocket(ws_protocol + window.location.host + "/ws");
 
-    // === TẠO UI BAN ĐẦU ===
-    function createLaneHTML(lane, index) {
-      return `
-        <div id="lane-card-${index}" class="status-card bg-gray-700 rounded-lg p-4 border-l-4 border-gray-600">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-bold">${lane.icon} ${lane.name}</h3>
-            <p id="lane-count-${index}" class="text-xl font-bold text-gray-300">0</p>
-          </div>
-          <div class="flex items-center justify-between mt-1">
-            <p id="lane-status-${index}" class="text-gray-400 text-sm">Đang khởi tạo...</p>
-            <div id="lane-dot-${index}" class="w-3 h-3 rounded-full bg-gray-500"></div>
-          </div>
-          <div class="grid grid-cols-3 gap-x-2 mt-3 pt-2 border-t border-gray-600 text-xs text-center">
-            <div><p class="font-semibold text-gray-400">Cảm Biến</p><p id="lane-sensor-${index}" class="font-mono mt-1 text-gray-500">-</p></div>
-            <div><p class="font-semibold text-gray-400">Piston Thu</p><p id="lane-relay-grab-${index}" class="font-mono mt-1 text-gray-500">-</p></div>
-            <div><p class="font-semibold text-gray-400">Piston Đẩy</p><p id="lane-relay-push-${index}" class="font-mono mt-1 text-gray-500">-</p></div>
-          </div>
-        </div>`;
-    }
+            ws.onopen = () => {
+                addLog("info", "Đã kết nối với server.");
+            };
 
-    lanesContainer.innerHTML = initialLanes.map(createLaneHTML).join("");
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "state_update") {
+                    updateState(data.state);
+                } else if (data.type === "log") {
+                    addLog(data.log_type, data.message || `[${data.name || data.data}]`, data.timestamp);
+                }
+            };
 
-    // === CẬP NHẬT TRẠNG THÁI LANE ===
-    function updateFullUI(state) {
-      connectionStatus.textContent = "● Hệ thống Online";
-      connectionStatus.className = "text-sm font-semibold text-green-400";
-      window.requestAnimationFrame(() => {
-        state.lanes.forEach((lane, index) => {
-          const countEl = document.getElementById(`lane-count-${index}`);
-          const statusEl = document.getElementById(`lane-status-${index}`);
-          const dotEl = document.getElementById(`lane-dot-${index}`);
-          const card = document.getElementById(`lane-card-${index}`);
+            ws.onclose = () => {
+                addLog("error", "Mất kết nối. Đang thử kết nối lại sau 3s...");
+                setTimeout(connectWebSocket, 3000);
+            };
 
-          if (!countEl) return;
-
-          countEl.textContent = lane.count;
-          statusEl.textContent = lane.status;
-          dotEl.className = "w-3 h-3 rounded-full transition";
-          card.style.borderColor = "#6B7280";
-
-          switch (lane.status) {
-            case "Sẵn sàng": dotEl.classList.add("bg-green-500"); card.style.borderColor = "#22C55E"; break;
-            case "Đang chờ vật...": dotEl.classList.add("bg-yellow-500"); card.style.borderColor = "#EAB308"; break;
-            case "Đang phân loại...": dotEl.classList.add("bg-blue-500"); card.style.borderColor = "#3B82F6"; break;
-            default: dotEl.classList.add("bg-gray-500"); break;
-          }
-
-          const s = document.getElementById(`lane-sensor-${index}`);
-          const g = document.getElementById(`lane-relay-grab-${index}`);
-          const p = document.getElementById(`lane-relay-push-${index}`);
-
-          s.textContent = lane.sensor === 0 ? "CÓ VẬT" : "Trống";
-          s.className = "font-mono mt-1 " + (lane.sensor === 0 ? "font-bold text-yellow-300" : "text-gray-500");
-          g.textContent = lane.relay_grab === 1 ? "BẬT" : "TẮT";
-          g.className = "font-mono mt-1 " + (lane.relay_grab === 1 ? "font-bold text-green-400" : "text-gray-500");
-          p.textContent = lane.relay_push === 1 ? "BẬT" : "TẮT";
-          p.className = "font-mono mt-1 " + (lane.relay_push === 1 ? "font-bold text-red-400" : "text-gray-500");
-        });
-      });
-    }
-
-    // === THÊM LOG ===
-    function addLog(message) {
-      const logItem = document.createElement("div");
-      logItem.className = "log-item text-sm p-2 rounded-md bg-gray-700/50";
-      logItem.innerHTML = message;
-      logContainer.prepend(logItem);
-      if (logContainer.children.length > 60) logContainer.removeChild(logContainer.lastChild);
-    }
-
-    // === KẾT NỐI WEBSOCKET ===
-    function connectWebSocket() {
-      const ws_protocol = window.location.protocol === "http:" ? "ws://" : "wss://";
-      const socket = new WebSocket(`${ws_protocol}${window.location.host}/ws`);
-
-      socket.onopen = () => {
-        connectionStatus.textContent = "● Đã kết nối";
-        connectionStatus.className = "text-sm text-green-400 font-semibold";
-      };
-
-      socket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "state_update") {
-          updateFullUI(msg.state);
-        } else if (msg.type === "log") {
-          const { log_type, timestamp, data, name, count, message } = msg;
-          let logHtml = `<span class="font-mono text-gray-400">${timestamp}</span> | `;
-          if (log_type === "qr") logHtml += `Quét mã: <strong class="text-blue-300">${data}</strong>`;
-          else if (log_type === "sensor") logHtml += `Cảm biến <strong>${name}</strong>: ${msg.status === 0 ? '<span class="text-yellow-300">CÓ VẬT</span>' : '<span class="text-gray-500">Trống</span>'}`;
-          else if (log_type === "sort") logHtml += `Sản phẩm <strong>${name}</strong> đã phân loại. (Tổng: ${count})`;
-          else if (log_type === "qr_ng") logHtml += `Mã <strong class="text-yellow-400">NG</strong> – Cho qua.`;
-          else logHtml += message || "";
-          addLog(logHtml);
+            ws.onerror = (err) => {
+                addLog("error", "Lỗi WebSocket.");
+                ws.close();
+            };
         }
-      };
 
-      socket.onclose = () => {
-        connectionStatus.textContent = "● Mất kết nối – thử lại...";
-        connectionStatus.className = "text-sm text-red-400 font-semibold";
-        setTimeout(connectWebSocket, 3000);
-      };
+        function updateState(state) {
+            state.lanes.forEach((lane, i) => {
+                const statusEl = document.getElementById(`lane-${i}-status`);
+                const countEl = document.getElementById(`lane-${i}-count`);
+                const sensorEl = document.getElementById(`lane-${i}-sensor`);
+                const grabEl = document.getElementById(`lane-${i}-grab`);
+                const pushEl = document.getElementById(`lane-${i}-push`);
 
-      socket.onerror = () => {
-        connectionStatus.textContent = "● Lỗi WebSocket";
-        connectionStatus.className = "text-sm text-red-400 font-semibold";
-      };
-    }
+                // Cập nhật status
+                statusEl.textContent = lane.status;
+                statusEl.className = "text-sm font-medium px-3 py-1 rounded-full ";
+                switch (lane.status) {
+                    case "Sẵn sàng":
+                        statusEl.classList.add("bg-green-100", "text-green-800");
+                        break;
+                    case "Đang chờ vật...":
+                        statusEl.classList.add("bg-yellow-100", "text-yellow-800");
+                        break;
+                    case "Đang phân loại...":
+                        statusEl.classList.add("bg-blue-100", "text-blue-800");
+                        break;
+                    default:
+                        statusEl.classList.add("bg-gray-200", "text-gray-800");
+                }
 
-    document.addEventListener("DOMContentLoaded", connectWebSocket);
-  </script>
+                // Cập nhật count
+                countEl.textContent = lane.count;
+
+                // Cập nhật sensor (0 = active, 1 = inactive)
+                sensorEl.classList.toggle("sensor-active", lane.sensor_reading === 0);
+                sensorEl.classList.toggle("sensor-inactive", lane.sensor_reading !== 0);
+
+                // Cập nhật relays (1 = active, 0 = inactive)
+                grabEl.classList.toggle("relay-active", lane.relay_grab === 1);
+                grabEl.classList.toggle("relay-inactive", lane.relay_grab !== 1);
+
+                pushEl.classList.toggle("relay-active", lane.relay_push === 1);
+                pushEl.classList.toggle("relay-inactive", lane.relay_push !== 1);
+            });
+        }
+
+        function addLog(type, message, timestamp) {
+            if (!timestamp) {
+                timestamp = new Date().toLocaleTimeString('vi-VN');
+            }
+            const logContainer = document.getElementById("log-container");
+            const p = document.createElement("p");
+            let color = "text-gray-300";
+            let prefix = "[INFO]";
+
+            switch (type) {
+                case "error": color = "text-red-400"; prefix = "[ERROR]"; break;
+                case "warn": color = "text-yellow-400"; prefix = "[WARN]"; break;
+                case "qr": color = "text-cyan-400"; prefix = `[QR: ${message}]`; message = ""; break;
+                case "sort": color = "text-green-400"; prefix = `[SORT: ${message}]`; message = ""; break;
+            }
+
+            p.className = color;
+            p.innerHTML = `<span class="text-gray-500">${timestamp}</span> ${prefix} ${message}`;
+            logContainer.appendChild(p);
+            logContainer.scrollTop = logContainer.scrollHeight; // Cuộn xuống dưới
+        }
+
+        function resetCount(lane) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: "reset_count", lane: lane }));
+            } else {
+                addLog("error", "Không thể reset: Mất kết nối server.");
+            }
+        }
+
+        // Bắt đầu kết nối
+        document.addEventListener("DOMContentLoaded", connectWebSocket);
+    </script>
 </body>
+
 </html>
