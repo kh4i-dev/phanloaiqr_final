@@ -8,29 +8,25 @@
     },
     "lanes_config": [
         {
-            "id": "Lo\u1ea1i 1",
-            "name": "Ph\u00e2n lo\u1ea1i A (\u0110\u1ea9y)",
+            "name": "Phân loại A (Đẩy)",
             "sensor_pin": 3,
             "push_pin": 17,
             "pull_pin": 18
         },
         {
-            "id": "Lo\u1ea1i 2",
-            "name": "Ph\u00e2n lo\u1ea1i B (\u0110\u1ea9y)",
+            "name": "Phân loại B (Đẩy)",
             "sensor_pin": 23,
             "push_pin": 27,
             "pull_pin": 14
         },
         {
-            "id": "Lo\u1ea1i 3",
-            "name": "Ph\u00e2n lo\u1ea1i C (\u0110\u1ea9y)",
+            "name": "Phân loại C (Đẩy)",
             "sensor_pin": 24,
             "push_pin": 22,
             "pull_pin": 4
         },
         {
-            "id": "D",
-            "name": "Lane D (\u0110i th\u1eb3ng/Tho\u00e1t)",
+            "name": "Lane D (Đi thẳng/Thoát)",
             "sensor_pin": 25,
             "push_pin": null,
             "pull_pin": null
