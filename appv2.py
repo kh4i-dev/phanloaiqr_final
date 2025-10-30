@@ -5,6 +5,23 @@ import json
 import threading
 from flask_sock import Sock
 import logging
+import unicodedata, re
+
+def _strip_accents(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s)
+    return "".join(ch for ch in s if not unicodedata.combining(ch))
+
+def canon_id(s: str) -> str:
+    """Chuẩn hoá ID/QR để khớp ổn định."""
+    if not s:
+        return ""
+    s = str(s).strip().upper()
+    s = _strip_accents(s)
+    s = re.sub(r"\bQR_?\b", "", s)
+    s = re.sub(r"[^A-Z0-9]", "", s)
+    s = re.sub(r"^(LOAI|LO)+", "", s)
+    return s
+
 import os
 import functools
 from concurrent.futures import ThreadPoolExecutor
@@ -177,17 +194,20 @@ test_seq_lock = threading.Lock() # Lock for sequential test flag
 _PIN_MAP = {
     "P1+": 17, "P1-": 18, "S1": 3,  # Lane 1: Push, Pull, Sensor
     "P2+": 27, "P2-": 14, "S2": 23,  # Lane 2: Push, Pull, Sensor
-    "P3+": 22, "P3-": 4,  "S3": 24   # Lane 3: Push, Pull, Sensor
+    "P3+": 22, "P3-": 4,  "S3": 24,   # Lane 3: Push, Pull, Sensor
+    "P4+": None, "P4-": None, "S4": None   # Lane 4: Push, Pull, Sensor
 }
 # Create reverse map (Number -> Name) for logging clarity
 PIN_TO_NAME_MAP = {v: k for k, v in _PIN_MAP.items()}
 
 # --- Default Config (will be overridden by config.json) ---
 DEFAULT_LANES_CFG = [
-    {"name": f"Loại {i+1}", "sensor_pin": _PIN_MAP[f"S{i+1}"],
-     "push_pin": _PIN_MAP[f"P{i+1}+"], "pull_pin": _PIN_MAP[f"P{i+1}-"]}
-    for i in range(3) # Default for 3 lanes
+    {"id": "A", "name": "Loại 1", "sensor_pin": _PIN_MAP["S1"], "push_pin": _PIN_MAP["P1+"], "pull_pin": _PIN_MAP["P1-"]},
+    {"id": "B", "name": "Loại 2", "sensor_pin": _PIN_MAP["S2"], "push_pin": _PIN_MAP["P2+"], "pull_pin": _PIN_MAP["P2-"]},
+    {"id": "C", "name": "Loại 3", "sensor_pin": _PIN_MAP["S3"], "push_pin": _PIN_MAP["P3+"], "pull_pin": _PIN_MAP["P3-"]},
+    {"id": "D", "name": "Loại 4 - Đi thẳng", "sensor_pin": None, "push_pin": None, "pull_pin": None},
 ]
+
 DEFAULT_TIMING_CFG = {
     "cycle_delay": 0.3, "settle_delay": 0.2, "sensor_debounce": 0.1,
     "push_delay": 0.0, "gpio_mode": "BCM"
@@ -205,8 +225,10 @@ system_state = {
     "is_mock": isinstance(GPIO, MockGPIO),
     "maintenance_mode": False,
     "gpio_mode": "BCM",     # Reflects the mode *currently* in use
-    "last_error": None
+    "last_error": None,
+    "queue_indices": []
 }
+
 state_lock = threading.Lock() # Lock for accessing/modifying system_state
 main_running = True # Flag to signal threads to stop
 latest_frame = None # Holds the latest frame from the camera
@@ -217,7 +239,26 @@ last_s_state, last_s_trig = [], [] # Populated based on number of lanes
 # Auto-test state variables
 AUTO_TEST = False
 auto_s_state, auto_s_trig = [], [] # Populated based on number of lanes
+# --- QR queue management ---
+QUEUE_HEAD_TIMEOUT = 10.0 # Seconds before the head of the queue is considered stale
+qr_queue = []
+queue_lock = threading.Lock()
+queue_head_since = 0.0
 
+
+def clear_qr_queue(reason=None):
+    """Clears the in-memory QR queue and updates shared state."""
+    global queue_head_since
+    with queue_lock:
+        qr_queue.clear()
+        queue_head_since = 0.0
+        current_queue = []
+
+    with state_lock:
+        system_state["queue_indices"] = current_queue
+
+    if reason:
+        broadcast_log({"log_type": "warn", "message": reason, "queue": current_queue})
 # =============================
 #       RELAY CONTROL FUNCTIONS
 # =============================
@@ -262,6 +303,13 @@ def load_config():
                 timing.update(file_cfg.get('timing_config', {}))
                 loaded['timing_config'] = timing
                 # Use lanes config from file or default if missing/invalid
+                
+                def ensure_lane_ids(lanes_list):
+                    default_ids = ['A', 'B', 'C', 'D', 'E', 'F']
+                    for i, lane in enumerate(lanes_list):
+                        if 'id' not in lane or not lane['id']:
+                            lane['id'] = default_ids[i] if i < len(default_ids) else f"LANE_{i+1}"
+                    return lanes_list
                 lanes_from_file = file_cfg.get('lanes_config', DEFAULT_LANES_CFG)
                 loaded['lanes_config'] = lanes_from_file if isinstance(lanes_from_file, list) else [l.copy() for l in DEFAULT_LANES_CFG]
             else: logging.warning(f"[CONFIG] {CONFIG_FILE} is empty, using defaults.")
@@ -314,11 +362,13 @@ def load_config():
         # Ensure maintenance status is reflected correctly
         system_state['maintenance_mode'] = error_manager.is_maintenance()
         system_state['last_error'] = error_manager.error
+        system_state['queue_indices'] = []
 
-    logging.info(f"[CONFIG] Config loaded successfully for {num_lanes} lanes.")
+    logging .info(f"[CONFIG] Config loaded successfully for {num_lanes} lanes.")
     logging.info(f"[CONFIG] Timing config: {system_state['timing_config']}")
     logging.info(f"[CONFIG] Relay pins: {RELAY_PINS}, Sensor pins: {SENSOR_PINS}")
 
+    clear_qr_queue() # Reset queue whenever configuration is (re)loaded
 def reset_relays():
     """Resets all relays to a safe default state (Pull ON, Push OFF)."""
     logging.info("[GPIO] Resetting all relays to default state (Pull ON, Push OFF)...")
@@ -334,6 +384,7 @@ def reset_relays():
                              "status": "OK" if lane["status"] != "ERR" else "ERR"}) # Keep ERR status if it exists
         time.sleep(0.1) # Short delay for relays to settle
         logging.info("[GPIO] Relays reset completed.")
+        clear_qr_queue("Queue cleared due to relay reset.")
     except Exception as e:
         logging.error(f"[GPIO] Error during relay reset: {e}", exc_info=True)
         error_manager.trigger_maintenance(f"Error resetting relays: {e}")
@@ -421,8 +472,18 @@ def run_camera():
 # =============================
 #       SORT LOGGING
 # =============================
+def summarize_sort_log(hourly_data):
+    """Aggregate hourly sort data into a per-day summary."""
+    daily_summary = {}
+    for date, hours in hourly_data.items():
+        daily_summary[date] = {}
+        for hour_values in hours.values():
+            for lane_name, count in hour_values.items():
+                daily_summary[date][lane_name] = daily_summary[date].get(lane_name, 0) + count
+    return daily_summary
 def save_sort_log(lane_index, lane_name):
-    """Logs the sort count to a JSON file, structured by date and hour."""
+    """Logs the sort count to a JSON file and broadcasts the aggregated summary."""
+    summary_to_broadcast = None
     with sort_log_lock: # Ensure exclusive access to the log file
         try:
             now = datetime.now()
@@ -456,9 +517,12 @@ def save_sort_log(lane_index, lane_name):
             # Write the updated data back to the file
             with open(SORT_LOG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(sort_log_data, f, indent=2, ensure_ascii=False) # Use indent=2 for readability
-
+            summary_to_broadcast = summarize_sort_log(sort_log_data)
         except Exception as e:
             logging.error(f"[SORT_LOG] Failed to write sort log: {e}")
+        if summary_to_broadcast is not None:
+            broadcast({"type": "sort_log_update", "summary": summary_to_broadcast})
+
 
 # =============================
 #       SORTING CYCLE LOGIC
@@ -606,6 +670,7 @@ def run_delayed_sort(lane_index):
 # =============================
 def run_qr_scan():
     """Thread function to detect QR codes from the camera feed."""
+    global queue_head_since
     detector = cv2.QRCodeDetector()
     last_qr_code, last_detection_time = "", 0.0
     lane_map = {} # Map QR code content (UPPERCASE, no spaces) to lane index
@@ -623,9 +688,10 @@ def run_qr_scan():
                     with state_lock:
                         # Build map: 'LOAI1' -> 0, 'LOAI2' -> 1, etc.
                         lane_map = {
-                            lane["name"].upper().replace(" ", ""): i
-                            for i, lane in enumerate(system_state["lanes"])
-                        }
+                        canon_id(lane.get("id", lane["name"])): i
+                        for i, lane in enumerate(system_state["lanes"])
+                    }
+
                     logging.info(f"[QR] Lane map updated: {lane_map}")
                     lane_map_needs_update = False # Reset flag
                 except Exception as map_err:
@@ -654,19 +720,50 @@ def run_qr_scan():
             if data and (data != last_qr_code or current_time - last_detection_time > 3.0):
                 last_qr_code, last_detection_time = data, current_time
                 # Normalize QR data for matching
-                qr_content_normalized = data.strip().upper().replace(" ", "")
+                qr_content_normalized = canon_id(data)
                 logging.info(f"[QR] Detected QR: '{data}' (Normalized: '{qr_content_normalized}')")
 
                 # Match QR content to a lane
                 if qr_content_normalized in lane_map:
                     lane_index = lane_map[qr_content_normalized]
+                    lane_name = f"Lane {lane_index + 1}"
+                    lane_status = "UNKNOWN"
                     with state_lock:
                         # Check index validity and if lane is ready
-                        if 0 <= lane_index < len(system_state["lanes"]) and system_state["lanes"][lane_index]["status"] == "OK":
-                            broadcast_log({"log_type": "qr", "data": data}) # Log original data
-                            system_state["lanes"][lane_index]["status"] = "WAIT_OBJ" # Set lane to wait for object
-                        else:
-                             logging.warning(f"[QR] Lane {lane_index} not ready for QR '{data}'. Status: {system_state['lanes'][lane_index]['status']}")
+                        if 0 <= lane_index < len(system_state["lanes"]):
+                            lane_state = system_state["lanes"][lane_index]
+                            lane_name = lane_state.get("name", lane_name)
+                            lane_status = lane_state.get("status", "UNKNOWN")
+
+                    if lane_status == "OK":
+                        queue_snapshot = []
+                        global queue_head_since
+                        with queue_lock:
+                            was_empty = not qr_queue
+                            qr_queue.append(lane_index)
+                            if was_empty:
+                                queue_head_since = current_time
+                            queue_snapshot = list(qr_queue)
+
+                        with state_lock:
+                            if 0 <= lane_index < len(system_state["lanes"]):
+                                system_state["lanes"][lane_index]["status"] = "WAIT_OBJ"
+                                system_state["queue_indices"] = queue_snapshot
+
+                        broadcast_log({
+                            "log_type": "qr",
+                            "data": data,
+                            "lane": lane_name,
+                            "queue": queue_snapshot
+                        })
+                    else:
+                        with queue_lock:
+                            queue_snapshot = list(qr_queue)
+                        broadcast_log({
+                            "log_type": "warn",
+                            "message": f"Lane '{lane_name}' not ready for QR '{data}'. Status: {lane_status}",
+                            "queue": queue_snapshot
+                        })
                 # Handle specific 'NG' code
                 elif qr_content_normalized == "NG":
                     broadcast_log({"log_type": "qr_ng", "data": data})
@@ -693,7 +790,7 @@ def run_qr_scan():
 # =============================
 def run_sensor_monitor():
     """Thread function to monitor sensor states and trigger actions."""
-    global last_s_state, last_s_trig
+    global last_s_state, last_s_trig,queue_head_since
     try:
         while main_running:
             # Pause monitoring if in auto-test or maintenance mode
@@ -721,6 +818,31 @@ def run_sensor_monitor():
 
             current_time = time.time()
             new_sensor_readings = last_s_state[:] # Copy last readings
+             # --- Queue timeout handling ---
+            timed_out_lane = None
+            queue_snapshot_after_timeout = None
+            with queue_lock:
+                if qr_queue and queue_head_since > 0.0:
+                    if (current_time - queue_head_since) > QUEUE_HEAD_TIMEOUT:
+                        timed_out_lane = qr_queue.pop(0)
+                        queue_head_since = current_time if qr_queue else 0.0
+                if timed_out_lane is not None or queue_snapshot_after_timeout is None:
+                    queue_snapshot_after_timeout = list(qr_queue)
+
+            if timed_out_lane is not None:
+                lane_name = f"Lane {timed_out_lane + 1}"
+                with state_lock:
+                    if 0 <= timed_out_lane < len(system_state["lanes"]):
+                        lane_state = system_state["lanes"][timed_out_lane]
+                        lane_name = lane_state.get("name", lane_name)
+                        if lane_state.get("status") in ("WAIT_OBJ", "WAIT_PUSH"):
+                            lane_state["status"] = "OK"
+                        system_state["queue_indices"] = queue_snapshot_after_timeout
+                broadcast_log({
+                    "log_type": "warn",
+                    "message": f"Queue timeout: removed '{lane_name}' after {QUEUE_HEAD_TIMEOUT}s without sensor trigger.",
+                    "queue": queue_snapshot_after_timeout
+                })
 
             # --- 2. Read sensors and process events (outside lock) ---
             for sensor_info in lanes_to_check:
@@ -750,23 +872,70 @@ def run_sensor_monitor():
                         last_s_trig[index] = current_time # Record time of this valid trigger
 
                         # Check if the lane was waiting for an object
-                        if status == "WAIT_OBJ":
-                            should_start_delay_thread = False
-                            # Update status to WAIT_PUSH (needs lock)
-                            with state_lock:
-                                # Re-verify index and status before changing
-                                if 0 <= index < len(system_state["lanes"]) and system_state["lanes"][index]["status"] == "WAIT_OBJ":
-                                    system_state["lanes"][index]["status"] = "WAIT_PUSH"
-                                    should_start_delay_thread = True # Flag to start thread outside lock
-                                else: # Status changed unexpectedly
-                                    broadcast_log({"log_type": "warn", "message": f"Sensor '{name}' triggered, but status no longer WAIT_OBJ."})
-                            # Start the delay handler thread if needed (outside lock)
-                            if should_start_delay_thread:
-                                executor.submit(run_delayed_sort, index) # Use thread pool
-                                # threading.Thread(target=run_delayed_sort, args=(index,), daemon=True, name=f"Delay_{index}").start() # Old method
-                        else: # Sensor triggered but lane wasn't waiting
-                            broadcast_log({"log_type": "warn", "message": f"Sensor '{name}' triggered unexpectedly (Status: {status})."})
+                        lane_name = name or f"Lane {index + 1}"
 
+                        # Synchronize with queue to ensure triggers match expected order
+                        queue_removed = False
+                        removal_type = "none" # head, out_of_order, none
+                        queue_snapshot_after = []
+                        with queue_lock:
+                            if qr_queue:
+                                try:
+                                    position = qr_queue.index(index)
+                                except ValueError:
+                                    position = -1
+
+                                if position >= 0:
+                                    qr_queue.pop(position)
+                                    queue_head_since = current_time if qr_queue else 0.0
+                                    queue_removed = True
+                                    removal_type = "head" if position == 0 else "out_of_order"
+                                queue_snapshot_after = list(qr_queue)
+                            else:
+                                queue_snapshot_after = []
+
+                        if not queue_removed:
+                            log_type = "warn" if not queue_snapshot_after else "error"
+                            msg = (f"Sensor '{lane_name}' triggered while queue empty." if not queue_snapshot_after
+                                   else f"Sensor '{lane_name}' triggered but lane not in queue (queue head {queue_snapshot_after[0]}).")
+                            broadcast_log({"log_type": log_type, "message": msg, "queue": queue_snapshot_after})
+                            new_sensor_readings[index] = current_reading
+                            continue
+
+                        should_start_delay_thread = False
+                        lane_status_now = "UNKNOWN"
+                        with state_lock:
+                            if 0 <= index < len(system_state["lanes"]):
+                                lane_state = system_state["lanes"][index]
+                                lane_name = lane_state.get("name", lane_name)
+                                lane_status_now = lane_state.get("status", "UNKNOWN")
+                                system_state["queue_indices"] = queue_snapshot_after
+                                if lane_state.get("status") == "WAIT_OBJ":
+                                    lane_state["status"] = "WAIT_PUSH"
+                                    lane_status_now = "WAIT_PUSH"
+                                    should_start_delay_thread = True
+
+                        if removal_type == "out_of_order":
+                            broadcast_log({
+                                "log_type": "warn",
+                                "message": f"Sensor '{lane_name}' triggered out of queue order. Adjusting queue.",
+                                "queue": queue_snapshot_after
+                            })
+                        else:
+                            broadcast_log({
+                                "log_type": "info",
+                                "message": f"Sensor '{lane_name}' confirmed arrival. Queue advanced.",
+                                "queue": queue_snapshot_after
+                            })
+
+                        if should_start_delay_thread:
+                            executor.submit(run_delayed_sort, index) # Use thread pool
+                        elif lane_status_now != "WAIT_PUSH":
+                            broadcast_log({
+                                "log_type": "warn",
+                                "message": f"Sensor '{lane_name}' triggered but lane status is {lane_status_now}.",
+                                "queue": queue_snapshot_after
+                            })
                 # Store the current reading for the next cycle's comparison
                 new_sensor_readings[index] = current_reading
 
@@ -941,6 +1110,7 @@ def run_auto_test_monitor():
             # --- Get Lane Info (brief lock) ---
             lanes_info_auto = []
             num_lanes = 0
+            queue_clear_reason = None
             with state_lock:
                 num_lanes = len(system_state['lanes'])
                 for i in range(num_lanes):
@@ -1124,9 +1294,9 @@ def route_get_config():
         config_snapshot = {
             "timing_config": system_state.get('timing_config', {}).copy(),
             "lanes_config": [
-                {"name": l.get('name'), "sensor_pin": l.get('sensor_pin'),
-                 "push_pin": l.get('push_pin'), "pull_pin": l.get('pull_pin')}
-                for l in system_state.get('lanes', [])
+             {"id": l['id'], "name": l['name'], "sensor_pin": l['sensor_pin'],
+            "push_pin": l['push_pin'], "pull_pin": l['pull_pin']}
+            for l in system_state['lanes']
             ]}
     return jsonify(config_snapshot)
 
@@ -1144,6 +1314,7 @@ def route_update_config():
     lanes_update = data.get('lanes_config') # Expects a list or None/missing
     config_to_save = {}
     restart_needed = False
+    queue_clear_reason = None
 
     with state_lock:
         # --- 1. Update Timing Config ---
@@ -1168,34 +1339,41 @@ def route_update_config():
 
         # --- 2. Update Lanes Config (if provided) ---
         if isinstance(lanes_update, list):
-             logging.info("[CONFIG] Updating lanes configuration...")
-             lanes_config = lanes_update # Update the global variable
-             num_lanes = len(lanes_config)
-             new_lanes_state, new_relay_pins, new_sensor_pins = [], [], []
-             # Rebuild lane state and pin lists based on new config
-             for i, cfg in enumerate(lanes_config):
-                 s_pin = int(cfg["sensor_pin"]) if cfg.get("sensor_pin") is not None else None
-                 p_pin = int(cfg["push_pin"]) if cfg.get("push_pin") is not None else None
-                 pl_pin = int(cfg["pull_pin"]) if cfg.get("pull_pin") is not None else None
-                 new_lanes_state.append({
-                     "name": cfg.get("name", f"Lane {i+1}"), "status": "OK", "count": 0,
-                     "sensor_pin": s_pin, "push_pin": p_pin, "pull_pin": pl_pin,
-                     "sensor_reading": 1, "relay_grab": 0, "relay_push": 0})
-                 if s_pin is not None: new_sensor_pins.append(s_pin)
-                 if p_pin is not None: new_relay_pins.append(p_pin)
-                 if pl_pin is not None: new_relay_pins.append(pl_pin)
+            logging.info("[CONFIG] Updating lanes configuration...")
+            lanes_config = lanes_update # Update the global variable
+            num_lanes = len(lanes_config)
+            new_lanes_state, new_relay_pins, new_sensor_pins = [], [], []
+            # Rebuild lane state and pin lists based on new config
+            for i, cfg in enumerate(lanes_config):
+                s_pin = int(cfg["sensor_pin"]) if cfg.get("sensor_pin") is not None else None
+                p_pin = int(cfg["push_pin"]) if cfg.get("push_pin") is not None else None
+                pl_pin = int(cfg["pull_pin"]) if cfg.get("pull_pin") is not None else None
+                new_lanes_state.append({
+                    "name": cfg.get("name", f"Lane {i+1}"), "status": "OK", "count": 0,
+                    "sensor_pin": s_pin, "push_pin": p_pin, "pull_pin": pl_pin,
+                    "sensor_reading": 1, "relay_grab": 0, "relay_push": 0})
+                if s_pin is not None:
+                    new_sensor_pins.append(s_pin)
+                if p_pin is not None:
+                    new_relay_pins.append(p_pin)
+                if pl_pin is not None:
+                    new_relay_pins.append(pl_pin)
 
-             # Update central state
-             system_state['lanes'] = new_lanes_state
-             # Reset dependent state arrays
-             last_s_state = [1] * num_lanes; last_s_trig = [0.0] * num_lanes
-             auto_s_state = [1] * num_lanes; auto_s_trig = [0.0] * num_lanes
-             RELAY_PINS, SENSOR_PINS = new_relay_pins, new_sensor_pins
-             config_to_save['lanes_config'] = lanes_config # Add new lanes to save data
-             lane_map_needs_update = True # Signal QR thread to rebuild map
-             restart_needed = True # Changing lanes requires restart for GPIO setup
-             logging.warning("[CONFIG] Lanes configuration changed. Application restart required.")
-             broadcast_log({"log_type": "warn", "message": "Lanes configuration changed. Restart required!"})
+            # Update central state
+            system_state['lanes'] = new_lanes_state
+            # Reset dependent state arrays
+            last_s_state = [1] * num_lanes
+            last_s_trig = [0.0] * num_lanes
+            auto_s_state = [1] * num_lanes
+            auto_s_trig = [0.0] * num_lanes
+            RELAY_PINS, SENSOR_PINS = new_relay_pins, new_sensor_pins
+            config_to_save['lanes_config'] = lanes_config # Add new lanes to save data
+            lane_map_needs_update = True # Signal QR thread to rebuild map
+            restart_needed = True # Changing lanes requires restart for GPIO setup
+            logging.warning("[CONFIG] Lanes configuration changed. Application restart required.")
+            broadcast_log({"log_type": "warn", "message": "Lanes configuration changed. Restart required!"})
+            queue_clear_reason = "Queue cleared due to lane configuration change."
+             
         else: # If lanes not in payload, use current lanes for saving
             config_to_save['lanes_config'] = [
                 {"name": l['name'], "sensor_pin": l['sensor_pin'],
@@ -1210,12 +1388,16 @@ def route_update_config():
         log_type = "warn" if restart_needed else "success"
         broadcast_log({"log_type": log_type, "message": msg})
         # Return the saved config and restart status
-        return jsonify({"message": msg, "config": config_to_save, "restart_required": restart_needed})
+        response_payload = {"message": msg, "config": config_to_save, "restart_required": restart_needed}
     except Exception as e:
         logging.error(f"[CONFIG] Failed to save config via POST: {e}", exc_info=True)
         broadcast_log({"log_type": "error", "message": f"Error saving config: {e}"})
         return jsonify({"error": f"Failed to save config: {e}"}), 500
+    if queue_clear_reason:
+        clear_qr_queue(queue_clear_reason)
 
+    # Return the saved config and restart status
+    return jsonify(response_payload)
 @app.route('/api/state')
 @require_auth
 def route_api_state():
@@ -1227,12 +1409,19 @@ def route_api_state():
     state_copy["maintenance_mode"] = error_manager.is_maintenance()
     state_copy["last_error"] = error_manager.error
     return jsonify(state_copy)
+@app.route('/api/queue/reset', methods=['POST'])
+@require_auth
+def route_api_queue_reset():
+    """API endpoint to clear the pending QR queue."""
+    user = request.authorization.username
+    clear_qr_queue(f"Queue reset by {user} via API.")
+    return jsonify({"message": "Queue cleared.", "queue": []})
 
 @app.route('/api/sort_log')
 @require_auth
 def route_api_sort_log():
     """API endpoint to GET the sort log, summarized by day."""
-    daily_summary = {}
+   
     with sort_log_lock:
         try:
             hourly_data = {}
@@ -1246,13 +1435,7 @@ def route_api_sort_log():
                             return jsonify({"error": f"Corrupted sort log file: {json_err}"}), 500
 
             # Summarize hourly data into daily totals
-            for date, hours in hourly_data.items():
-                daily_summary[date] = {}
-                for hour, lanes_in_hour in hours.items():
-                    for lane_name, count in lanes_in_hour.items():
-                        daily_summary[date][lane_name] = daily_summary[date].get(lane_name, 0) + count
-
-            return jsonify(daily_summary)
+            return jsonify(summarize_sort_log(hourly_data))
         except Exception as e:
             logging.error(f"[API] Error reading or summarizing sort log: {e}", exc_info=True)
             return jsonify({"error": f"Failed to process sort log: {e}"}), 500
@@ -1344,8 +1527,10 @@ def route_ws(ws):
                     logging.info(f"[TEST] Auto-Test mode set to {AUTO_TEST} by '{user}'.")
                     status_msg = "ENABLED" if AUTO_TEST else "DISABLED"
                     broadcast_log({"log_type": "warn", "message": f"Auto-Test mode {status_msg} by '{user}'."})
-                    if not AUTO_TEST: reset_relays() # Reset relays when turning off
-
+                    if AUTO_TEST:
+                        clear_qr_queue("Queue cleared when Auto-Test mode enabled.")
+                    else:
+                        reset_relays() # Reset relays when turning off
                 elif action == "reset_maintenance":
                     if error_manager.is_maintenance():
                         error_manager.reset() # Broadcasts update internally

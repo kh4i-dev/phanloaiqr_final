@@ -245,7 +245,7 @@ DEFAULT_LANES_CONFIG = [
     {"id": "A", "name": "Phân loại A (Đẩy)", "sensor_pin": 3, "push_pin": 17, "pull_pin": 18},
     {"id": "B", "name": "Phân loại B (Đẩy)", "sensor_pin": 23, "push_pin": 27, "pull_pin": 14},
     {"id": "C", "name": "Phân loại C (Đẩy)", "sensor_pin": 24, "push_pin": 22, "pull_pin": 4},
-    {"id": "D", "name": "Lane D (Đi thẳng/Thoát)", "sensor_pin": 25, "push_pin": None, "pull_pin": None},
+    {"id": "D", "name": "Lane D (Đi thẳng/Thoát)", "sensor_pin": None, "push_pin": None, "pull_pin": None},
 ]
 lanes_config = DEFAULT_LANES_CONFIG # Sẽ được cập nhật từ file config
 

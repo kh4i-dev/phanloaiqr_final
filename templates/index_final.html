@@ -192,6 +192,12 @@
             animation: fadeIn 0.4s ease-out;
         }
 
+        .queue-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
         /* ----- KẾT THÚC THÊM CSS FADE-IN ----- */
     </style>
 </head>
@@ -262,6 +268,13 @@
         <div id="page-home" class="space-y-4">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <!-- Cột Trái: Camera, Logs -->
+                <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
+                    <h2 class="text-lg font-semibold mb-2 text-white">📦 Hàng Chờ QR (Thứ tự tiếp theo)</h2>
+                    <div id="qr-queue-container"
+                        class="bg-gray-900 rounded-md p-3 min-h-[4rem] flex flex-wrap gap-2 items-center">
+                        <span id="qr-queue-empty" class="text-gray-500 text-sm">Hàng chờ đang rỗng...</span>
+                    </div>
+                </div>
                 <div class="lg:col-span-2 flex flex-col space-y-4">
                     <!-- Card Camera -->
                     <div class="bg-gray-800 p-3 rounded-lg shadow-lg">
@@ -500,7 +513,11 @@
         let autoTestEnabled = false;
         let qrTimer;
         let sortBarChart, sortDoughnutChart;
+        let latestSortSummary = {};
         let currentPage = 'home';
+        let laneNamesCache = [];
+        const queueColorPalette = ['bg-blue-600', 'bg-green-600', 'bg-yellow-500', 'bg-purple-600', 'bg-pink-600', 'bg-emerald-600'];
+
 
         /* --- Hướng dẫn Login --- */
         // ... (đã ẩn) ...
@@ -525,6 +542,7 @@
                     if (data.type === "state_update") updateState(data.state);
                     else if (data.type === "log") addLog(data.log_type, data.message, data.timestamp, data.data);
                     else if (data.type === "maintenance_update") updateMaintenanceBanner(data.enabled, data.reason);
+                    else if (data.type === "sort_log_update") handleSortSummary(data.summary);
                     else if (data.type === "test_sequence_complete") {
                         document.getElementById('test-all-btn').disabled = false;
                         document.getElementById('stop-test-btn').classList.add('hidden');
@@ -606,6 +624,9 @@
             if (mainLog.childElementCount > 200) {
                 mainLog.removeChild(mainLog.lastElementChild);
             }
+            if (data?.queue) {
+                updateQueueUI(data.queue);
+            }
 
             // Nếu đang ở trang Test, cũng thêm log này lên đầu test log
             if (currentPage === 'test' && testLog) {
@@ -622,6 +643,7 @@
         // ===== CẬP NHẬT TRẠNG THÁI (STATE) =====
         function updateState(state) {
             if (!state) return;
+            window.system_state = state;
             // Config Inputs
             if (state.timing_config) {
                 const cfg = state.timing_config;
@@ -633,6 +655,7 @@
             }
             // Lanes
             if (state.lanes && Array.isArray(state.lanes)) {
+                laneNamesCache = state.lanes.map((lane, i) => lane?.name || `Lane ${i + 1}`);
                 state.lanes.forEach((lane, i) => {
                     if (typeof lane !== 'object' || lane === null) return console.warn(`Lane ${i} invalid:`, lane);
                     const nameEl = document.getElementById(`lane-${i}-name`); if (nameEl) nameEl.textContent = lane.name || `L${i + 1}`;
@@ -648,9 +671,56 @@
                     const testSensor = document.getElementById(`test-sensor-${i}`); if (testSensor) { testSensor.classList.toggle("sensor-active", lane.sensor_reading === 0); testSensor.classList.toggle("sensor-inactive", lane.sensor_reading !== 0); }
                 });
             } else console.warn("state.lanes invalid:", state.lanes);
+            if (Object.prototype.hasOwnProperty.call(state, 'queue_indices')) {
+                updateQueueUI(state.queue_indices || []);
+            }
             // Badges & Banner
             document.getElementById('mock-badge')?.classList.toggle('hidden', !state.is_mock);
             updateMaintenanceBanner(state.maintenance_mode, state.last_error);
+        }
+        function getLaneDisplayName(index) {
+            const numericIndex = Number(index);
+            if (!Number.isNaN(numericIndex) && laneNamesCache[numericIndex]) {
+                return laneNamesCache[numericIndex];
+            }
+            if (!Number.isNaN(numericIndex)) {
+                return `Lane ${numericIndex + 1}`;
+            }
+            return typeof index === 'string' ? index : 'Lane ?';
+        }
+
+        function updateQueueUI(queueIndices) {
+            const queueContainer = document.getElementById("qr-queue-container");
+            const emptyMessage = document.getElementById("qr-queue-empty");
+            if (!queueContainer || !emptyMessage) return;
+
+            queueContainer.querySelectorAll('.queue-item').forEach(el => el.remove());
+
+            if (!Array.isArray(queueIndices) || queueIndices.length === 0) {
+                emptyMessage.classList.remove('hidden');
+                return;
+            }
+
+            emptyMessage.classList.add('hidden');
+
+            queueIndices.forEach((laneIndex, position) => {
+                const laneName = getLaneDisplayName(laneIndex);
+                const numericIndex = Number(laneIndex);
+                const colorClass = Number.isNaN(numericIndex)
+                    ? 'bg-gray-600'
+                    : (queueColorPalette[numericIndex % queueColorPalette.length] || 'bg-gray-600');
+                const itemEl = document.createElement('span');
+                itemEl.className = `queue-item text-xs font-bold text-white px-3 py-1 rounded-full ${colorClass}`;
+
+                if (position === 0) {
+                    itemEl.innerHTML = `→ ${laneName} (Tiếp theo)`;
+                    itemEl.classList.add('ring-2', 'ring-white', 'shadow-lg');
+                } else {
+                    itemEl.textContent = laneName;
+                }
+
+                queueContainer.appendChild(itemEl);
+            });
         }
 
         // ===== BANNER BẢO TRÌ =====
@@ -731,15 +801,34 @@
         }
 
         // --- Chart ---
+
+        function handleSortSummary(summary) {
+            if (!summary || typeof summary !== 'object') return;
+            latestSortSummary = summary;
+            if (currentPage === 'stats') {
+                renderCharts(latestSortSummary);
+            }
+        }
         function loadSortChart() {
+            if (latestSortSummary && Object.keys(latestSortSummary).length > 0) {
+                renderCharts(latestSortSummary);
+                return;
+            }
             _fetch("/api/sort_log")
                 .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-                .then(data => { renderCharts(data); })
+                .then(data => { handleSortSummary(data); })
                 .catch(err => { addLog("error", "Không thể tải dữ liệu thống kê."); console.error("Lỗi /api/sort_log:", err); });
         }
         function renderCharts(data) {
+            if (!data || typeof data !== 'object') return;
+            const dayKeys = Object.keys(data);
+            if (dayKeys.length === 0) {
+                if (sortBarChart) { sortBarChart.destroy(); sortBarChart = null; }
+                if (sortDoughnutChart) { sortDoughnutChart.destroy(); sortDoughnutChart = null; }
+                return;
+            }
             const today = new Date().toISOString().split('T')[0];
-            const days = Object.keys(data).sort().slice(-7); const labels = days;
+            const days = dayKeys.sort().slice(-7); const labels = days;
             let laneNames = ["L1", "L2", "L3"];
             try { const stateLanes = system_state?.lanes; if (Array.isArray(stateLanes) && stateLanes.length > 0) { laneNames = stateLanes.map(ln => ln.name || '?'); } else { const cfgLanes = JSON.parse(document.getElementById('config-json')?.textContent || '{}')?.lanes_config; if (Array.isArray(cfgLanes) && cfgLanes.length > 0) laneNames = cfgLanes.map(ln => ln.name || '?'); } } catch { }
             const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#a855f7', '#ec4899'];
