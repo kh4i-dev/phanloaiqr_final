@@ -5,14 +5,16 @@
         "sensor_debounce": 0.1,
         "push_delay": 1,
         "gpio_mode": "BCM",
+        "queue_head_timeout": 15.0,
+        "pending_trigger_timeout": 0.5,
         "id": 1
     },
     "qr_config": {
-        "use_roi": true,
-        "roi_x": 160,
-        "roi_y": 120,
-        "roi_w": 320,
-        "roi_h": 240
+        "use_roi": false,
+        "roi_x": 0,
+        "roi_y": 0,
+        "roi_w": 0,
+        "roi_h": 0
     },
     "lanes_config": [
         {
