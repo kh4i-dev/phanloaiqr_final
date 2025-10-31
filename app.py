@@ -297,7 +297,7 @@ frame_lock = threading.Lock()
 qr_queue = []
 queue_lock = threading.Lock()
 # CHỐNG KẸT HÀNG CHỜ
-QUEUE_HEAD_TIMEOUT = 10.0 # Timeout (giây) cho vật phẩm đầu hàng chờ
+QUEUE_HEAD_TIMEOUT = 15.0 # Timeout (giây) cho vật phẩm đầu hàng chờ
 queue_head_since = 0.0 # Thời điểm vật phẩm đầu tiên được thêm vào hàng chờ
 
 # Biến cho việc chống nhiễu (debounce) sensor
@@ -309,6 +309,14 @@ AUTO_TEST_ENABLED = False
 auto_test_last_state = []
 auto_test_last_trigger = []
 
+# =============================
+# (NÂNG CẤP) TÍNH NĂNG "SENSOR-FIRST"
+# =============================
+# Mảng lưu trạng thái sensor đang chờ QR (nếu sensor kích hoạt trước)
+pending_sensor_triggers = []
+# Thời gian tối đa (giây) mà sensor chờ QR
+PENDING_TRIGGER_TIMEOUT = 0.5 
+
 
 # =============================
 #     HÀM KHỞI ĐỘNG & CONFIG
@@ -318,6 +326,8 @@ def load_local_config():
     global lanes_config, RELAY_PINS, SENSOR_PINS
     global last_sensor_state, last_sensor_trigger_time
     global auto_test_last_state, auto_test_last_trigger
+    # (NÂNG CẤP) Thêm biến global
+    global pending_sensor_triggers
 
     default_timing_config = {
         "cycle_delay": 0.3,
@@ -411,6 +421,9 @@ def load_local_config():
     last_sensor_trigger_time = [0.0] * num_lanes
     auto_test_last_state = [1] * num_lanes
     auto_test_last_trigger = [0.0] * num_lanes
+    # (NÂNG CẤP) Khởi tạo mảng pending triggers
+    pending_sensor_triggers = [0.0] * num_lanes
+
 
     with state_lock:
         system_state['timing_config'] = loaded_config['timing_config']
@@ -528,7 +541,7 @@ def camera_capture_thread():
 
         with frame_lock:
             latest_frame = frame.copy()
-        time.sleep(1 / 30)
+        time.sleep(1 / 60)
     camera.release()
 
 # =============================
@@ -687,12 +700,15 @@ def handle_sorting_with_delay(lane_index):
 
         with state_lock:
             if not (0 <= lane_index < len(system_state["lanes"])): return
+            # (NÂNG CẤP) Trạng thái có thể là "Đang chờ đẩy" (QR-first) 
+            # hoặc "Sẵn sàng" (Sensor-first, đã xử lý pending)
             current_status = system_state["lanes"][lane_index]["status"]
 
-        if current_status == "Đang chờ đẩy":
+        # (NÂNG CẤP) Chấp nhận nhiều trạng thái hơn
+        if current_status in ["Đang chờ đẩy", "Sẵn sàng"]:
             sorting_process(lane_index)
         else:
-            broadcast_log({"log_type": "warn", "message": f"Hủy chu trình {lane_name_for_log} do trạng thái thay đổi."})
+            broadcast_log({"log_type": "warn", "message": f"Hủy chu trình {lane_name_for_log} do trạng thái thay đổi ({current_status})."})
 
     except Exception as e:
         logging.error(f"[ERROR] Lỗi trong luồng handle_sorting_with_delay (lane {lane_name_for_log}): {e}")
@@ -705,9 +721,138 @@ def handle_sorting_with_delay(lane_index):
 
 
 # =============================
-#     QUÉT MÃ QR TỰ ĐỘNG
+# (FIX) CÁC HÀM TEST RELAY
+# (Thêm các hàm còn thiếu _run_test_relay và _run_test_all_relays)
+# =============================
+def _run_test_relay(lane_index, relay_action):
+    """Chạy test cho 1 relay cụ thể (chạy trong executor)."""
+    try:
+        lane_index = int(lane_index)
+    except (TypeError, ValueError):
+        logging.error(f"[TEST] _run_test_relay: lane_index không hợp lệ: {lane_index}")
+        return
+
+    lane_name, push_pin, pull_pin = None, None, None
+    
+    with state_lock:
+        if not (0 <= lane_index < len(system_state["lanes"])):
+            logging.error(f"[TEST] _run_test_relay: lane_index ngoài phạm vi: {lane_index}")
+            return
+        lane = system_state["lanes"][lane_index]
+        lane_name = lane.get("name")
+        push_pin = lane.get("push_pin")
+        pull_pin = lane.get("pull_pin")
+
+    if push_pin is None or pull_pin is None:
+        broadcast_log({"log_type": "warn", "message": f"Không thể test '{relay_action}' cho {lane_name} (thiếu pin)."})
+        return
+
+    broadcast_log({"log_type": "info", "message": f"Bắt đầu test '{relay_action}' cho {lane_name}..."})
+    
+    # Lấy thời gian delay từ config
+    with state_lock:
+         cfg = system_state['timing_config']
+         cycle_delay = cfg.get('cycle_delay', 0.3)
+         settle_delay = cfg.get('settle_delay', 0.2)
+
+    try:
+        if relay_action == "push":
+            # 1. Nhả Thu (OFF)
+            RELAY_OFF(pull_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 0
+            time.sleep(settle_delay)
+            # 2. Bật Đẩy (ON)
+            RELAY_ON(push_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_push"] = 1
+            time.sleep(cycle_delay)
+        
+        elif relay_action == "pull": # 'pull' thực ra là reset về 'thu'
+            # 1. Tắt Đẩy (OFF)
+            RELAY_OFF(push_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_push"] = 0
+            time.sleep(settle_delay)
+            # 2. Bật Thu (ON)
+            RELAY_ON(pull_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 1
+            time.sleep(cycle_delay)
+
+        elif relay_action == "cycle": # Đẩy ra -> Thu về
+            # 1. Nhả Thu (OFF)
+            RELAY_OFF(pull_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 0
+            time.sleep(settle_delay)
+            # 2. Bật Đẩy (ON)
+            RELAY_ON(push_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_push"] = 1
+            time.sleep(cycle_delay)
+            # 3. Tắt Đẩy (OFF)
+            RELAY_OFF(push_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_push"] = 0
+            time.sleep(settle_delay)
+            # 4. Bật Thu (ON)
+            RELAY_ON(pull_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 1
+            time.sleep(0.1) # Chờ 1 chút
+        
+        # Reset (Giống 'pull')
+        else: 
+            RELAY_OFF(push_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_push"] = 0
+            time.sleep(settle_delay)
+            RELAY_ON(pull_pin)
+            with state_lock: system_state["lanes"][lane_index]["relay_grab"] = 1
+
+        broadcast_log({"log_type": "success", "message": f"Test '{relay_action}' cho {lane_name} hoàn tất."})
+
+    except Exception as e:
+        logging.error(f"[TEST] Lỗi khi đang test {lane_name}: {e}")
+        broadcast_log({"log_type": "error", "message": f"Lỗi khi test {lane_name}: {e}"})
+    finally:
+        # LUÔN LUÔN trả về trạng thái an toàn
+        RELAY_OFF(push_pin)
+        RELAY_ON(pull_pin)
+        with state_lock:
+            if 0 <= lane_index < len(system_state["lanes"]):
+                system_state["lanes"][lane_index]["relay_push"] = 0
+                system_state["lanes"][lane_index]["relay_grab"] = 1
+                system_state["lanes"][lane_index]["status"] = "Sẵn sàng"
+
+def _run_test_all_relays():
+    """Chạy test 'cycle' cho tất cả các lane (chạy trong executor)."""
+    broadcast_log({"log_type": "warn", "message": f"Bắt đầu test chu trình (cycle) TẤT CẢ các lane..."})
+    
+    num_lanes = 0
+    with state_lock:
+        num_lanes = len(system_state["lanes"])
+        
+    if num_lanes == 0:
+        logging.warning("[TEST] _run_test_all_relays: Không có lane nào để test.")
+        return
+
+    for i in range(num_lanes):
+        if not main_loop_running: return # Dừng nếu app tắt
+        
+        # Kiểm tra xem lane này có pin không
+        has_pins = False
+        with state_lock:
+            if 0 <= i < len(system_state["lanes"]):
+                 lane = system_state["lanes"][i]
+                 if lane.get("push_pin") is not None and lane.get("pull_pin") is not None:
+                     has_pins = True
+        
+        if has_pins:
+            _run_test_relay(i, "cycle")
+            time.sleep(0.1) # Nghỉ 0.1s giữa các lane
+
+    broadcast_log({"log_type": "success", "message": "Test tất cả các lane hoàn tất."})
+    reset_all_relays_to_default()
+
+
+# =============================
+#     (NÂNG CẤP) QUÉT MÃ QR 
 # =============================
 def qr_detection_loop():
+    global pending_sensor_triggers, queue_head_since
     detector = cv2.QRCodeDetector()
     last_qr, last_time = "", 0.0
     
@@ -733,16 +878,22 @@ def qr_detection_loop():
             time.sleep(0.1)
             continue
 
+        gray_frame = None # Khởi tạo
         try:
             gray_frame = cv2.cvtColor(frame_copy, cv2.COLOR_BGR2GRAY)
             if gray_frame.mean() < 10:
                 time.sleep(0.1)
                 continue
         except Exception:
-            pass
+            pass # Bỏ qua nếu frame lỗi
+
+        if gray_frame is None:
+            time.sleep(0.01) # Thử lại nhanh
+            continue
 
         try:
-            data, _, _ = detector.detectAndDecode(frame_copy)
+            # (TỐI ƯU HÓA TỐC ĐỘ) Chạy detect trên frame XÁM thay vì frame MÀU
+            data, _, _ = detector.detectAndDecode(gray_frame)
         except cv2.error:
             data = None
             time.sleep(0.1)
@@ -754,37 +905,70 @@ def qr_detection_loop():
             # (MỚI) Chuẩn hóa dữ liệu QR code đầu vào
             data_key = canon_id(data)
             data_raw = data.strip()
+            now = time.time()
 
             if data_key in LANE_MAP:
                 idx = LANE_MAP[data_key]
-
-                with queue_lock:
-                    is_queue_empty_before = not qr_queue
-                    qr_queue.append(idx)
-                    current_queue_for_log = list(qr_queue)
-
-                    if is_queue_empty_before and qr_queue:
-                        global queue_head_since
-                        queue_head_since = time.time()
-
-                with state_lock:
-                    if 0 <= idx < len(system_state["lanes"]):
-                        if system_state["lanes"][idx]["status"] == "Sẵn sàng":
-                            system_state["lanes"][idx]["status"] = "Đang chờ vật..."
-                # (FIX LỖI ĐỒNG BỘ) Cập nhật queue indices vào state
-                system_state["queue_indices"] = current_queue_for_log
-
-
-            # Gửi log (vẫn dùng data_raw cho log UI)
-                broadcast_log({
-                    "log_type": "qr",
-                    "data": data_raw, 
-                    "data_key": data_key, # Thêm key đã chuẩn hóa cho debug
-                    "queue": current_queue_for_log
-                })
-                logging.info(f"[QR] '{data_raw}' -> canon='{data_key}' -> lane index {idx}")
+                current_queue_for_log = [] # Khởi tạo
                 
+                # ==================================================
+                # (NÂNG CẤP) Logic "Sensor-First"
+                # Kiểm tra xem sensor lane này có đang chờ QR không
+                # ==================================================
+                is_pending_match = False
+                with queue_lock: # Cần lock khi kiểm tra pending_sensor_triggers
+                    if 0 <= idx < len(pending_sensor_triggers):
+                        if (pending_sensor_triggers[idx] > 0.0) and (now - pending_sensor_triggers[idx] < PENDING_TRIGGER_TIMEOUT):
+                            is_pending_match = True
+                            pending_sensor_triggers[idx] = 0.0 # Xóa cờ chờ
+                    current_queue_for_log = list(qr_queue) # Lấy queue log
+
+                if is_pending_match:
+                    # TRƯỜNG HỢP 1: Sensor đã kích hoạt TRƯỚC. Giờ QR mới tới.
+                    # Khớp! Xử lý ngay, không cần thêm vào hàng chờ.
+                    lane_name_for_log = "UNKNOWN"
+                    with state_lock:
+                         if 0 <= idx < len(system_state["lanes"]):
+                            lane_name_for_log = system_state["lanes"][idx]['name']
+
+                    broadcast_log({
+                        "log_type": "info",
+                        "message": f"QR '{data_raw}' khớp với sensor {lane_name_for_log} đang chờ.",
+                        "queue": current_queue_for_log
+                    })
+                    logging.info(f"[QR] '{data_raw}' -> canon='{data_key}' -> lane {idx} (Khớp pending sensor)")
+                    
+                    # (NÂNG CẤP) Bỏ qua hàng chờ, chạy xử lý đẩy ngay
+                    threading.Thread(target=handle_sorting_with_delay, args=(idx,), daemon=True).start()
+                
+                else:
+                    # TRƯỜNG HỢP 2: Bình thường. QR tới trước. Thêm vào hàng chờ.
+                    with queue_lock:
+                        is_queue_empty_before = not qr_queue
+                        qr_queue.append(idx)
+                        current_queue_for_log = list(qr_queue) # Cập nhật lại
+
+                        if is_queue_empty_before and qr_queue:
+                            queue_head_since = time.time()
+
+                    with state_lock:
+                        if 0 <= idx < len(system_state["lanes"]):
+                            if system_state["lanes"][idx]["status"] == "Sẵn sàng":
+                                system_state["lanes"][idx]["status"] = "Đang chờ vật..."
+                    
+                    system_state["queue_indices"] = current_queue_for_log
+
+                    # Gửi log (vẫn dùng data_raw cho log UI)
+                    broadcast_log({
+                        "log_type": "qr",
+                        "data": data_raw, 
+                        "data_key": data_key, # Thêm key đã chuẩn hóa cho debug
+                        "queue": current_queue_for_log
+                    })
+                    logging.info(f"[QR] '{data_raw}' -> canon='{data_key}' -> lane index {idx} (Thêm vào hàng chờ)")
+
                 # (FIX LỖI ĐỒNG BỘ UI) Đẩy state update ngay lập tức qua WebSocket
+                # (Đã di chuyển ra ngoài if/else)
                 with state_lock:
                     # Đảm bảo state được cập nhật trước khi gửi
                     system_state["maintenance_mode"] = error_manager.is_maintenance()
@@ -804,15 +988,16 @@ def qr_detection_loop():
                 # Gửi data gốc chưa chuẩn hóa (data.strip()) cho log UI, nhưng log console ID đã chuẩn hóa
                 broadcast_log({"log_type": "unknown_qr", "data": data_raw, "data_key": data_key}) 
                 logging.warning(f"[QR] Không rõ mã QR: raw='{data_raw}', canon='{data_key}', keys={list(LANE_MAP.keys())}")
-
-        time.sleep(0.1)
+        
+        # (TỐI ƯU HÓA TỐC ĐỘ) Giảm sleep time để tăng tốc độ quét QR
+        time.sleep(0.01)
 
 # =============================
-#     LUỒNG GIÁM SÁT SENSOR
+# (NÂNG CẤP) LUỒNG GIÁM SÁT SENSOR
 # =============================
 def sensor_monitoring_thread():
     global last_sensor_state, last_sensor_trigger_time
-    global queue_head_since
+    global queue_head_since, pending_sensor_triggers
 
     try:
         while main_loop_running:
@@ -837,7 +1022,7 @@ def sensor_monitoring_thread():
                                 if system_state["lanes"][expected_lane_index]["status"] == "Đang chờ vật...":
                                     system_state["lanes"][expected_lane_index]["status"] = "Sẵn sàng"
 
-                        qr_queue.pop(0)
+                        qr_queue.pop(0) # Dùng pop(0) cho list (hoạt động như popleft)
                         current_queue_for_log = list(qr_queue)
                         queue_head_since = now if qr_queue else 0.0
 
@@ -856,7 +1041,7 @@ def sensor_monitoring_thread():
                         continue
                     lane_for_read = system_state["lanes"][i]
                     sensor_pin = lane_for_read.get("sensor_pin")
-                    push_pin = lane_for_read.get("push_pin")
+                    push_pin = lane_for_read.get("push_pin") # Lấy push_pin để quyết định logic
 
                 if sensor_pin is None:
                     continue
@@ -882,40 +1067,69 @@ def sensor_monitoring_thread():
                             if 0 <= i < len(system_state["lanes"]):
                                 lane_name_for_log = system_state["lanes"][i]['name']
 
+                        # ============================================
+                        # (FIX v3.0) LOGIC FIFO NGHIÊM NGẶT
+                        # (Thay thế logic 'if i in qr_queue:' bằng 'if i == qr_queue[0]:')
+                        # ============================================
                         with queue_lock:
                             if not qr_queue:
-                                broadcast_log({"log_type": "warn", "message": f"Sensor {lane_name_for_log} (lane {i}) bị kích hoạt ngoài dự kiến (hàng chờ rỗng)."})
+                                # --- 1. HÀNG CHỜ RỖNG ---
+                                
+                                # (LOGIC CŨ VẪN ĐÚNG) Chỉ xử lý lane đi thẳng
                                 if push_pin is None:
+                                    broadcast_log({"log_type": "info", "message": f"Vật đi thẳng (không QR) qua {lane_name_for_log}."})
                                     threading.Thread(target=sorting_process, args=(i,), daemon=True).start()
-                                    with state_lock:
-                                        system_state["lanes"][i]["status"] = "Sẵn sàng"
-                                continue
+                                else:
+                                    # Là lane đẩy, kích hoạt Sensor-First (chờ QR)
+                                    if 0 <= i < len(pending_sensor_triggers):
+                                        pending_sensor_triggers[i] = now 
+                                    broadcast_log({"log_type": "warn", "message": f"Sensor {lane_name_for_log} kích hoạt (hàng chờ rỗng). Đang chờ QR (timeout {PENDING_TRIGGER_TIMEOUT}s)..."})
 
-                            if i in qr_queue:
-                                qr_queue.remove(i)
+                            elif i == qr_queue[0]:
+                                # --- 2. KHỚP ĐẦU HÀNG CHỜ (FIFO Success) ---
+                                # Đây là vật chúng ta đang mong đợi!
+                                
+                                qr_queue.pop(0) # Xóa vật phẩm khỏi ĐẦU hàng chờ
                                 current_queue_for_log = list(qr_queue)
                                 queue_head_since = now if qr_queue else 0.0
+                                
                                 with state_lock:
                                     if 0 <= i < len(system_state["lanes"]):
+                                        lane_ref = system_state["lanes"][i]
+                                        # Đặt trạng thái chờ đẩy (nếu là lane đẩy)
                                         if push_pin is None:
-                                            system_state["lanes"][i]["status"] = "Đang đi thẳng..."
-                                            threading.Thread(target=sorting_process, args=(i,), daemon=True).start()
+                                            lane_ref["status"] = "Đang đi thẳng..."
                                         else:
-                                            system_state["queue_indices"] = current_queue_for_log
+                                            lane_ref["status"] = "Đang chờ đẩy"
+                                        system_state["queue_indices"] = current_queue_for_log
+
+                                # Khởi chạy luồng xử lý (đẩy hoặc đếm)
+                                threading.Thread(target=handle_sorting_with_delay, args=(i,), daemon=True).start()
 
                                 broadcast_log({
                                     "log_type": "info",
-                                    "message": f"Sensor {lane_name_for_log} khớp hàng chờ (xử lý linh hoạt).",
+                                    "message": f"Sensor {lane_name_for_log} khớp đầu hàng chờ (FIFO).",
                                     "queue": current_queue_for_log
                                 })
+                                
+                                # Xóa cờ chờ sensor (nếu có)
+                                if 0 <= i < len(pending_sensor_triggers):
+                                    pending_sensor_triggers[i] = 0.0
+
                             else:
-                                current_queue_for_log = list(qr_queue)
-                                broadcast_log({
-                                    "log_type": "error",
-                                    "message": f"Sensor {lane_name_for_log} kích hoạt ngoài danh sách hàng chờ (vật lạ?).",
-                                    "queue": current_queue_for_log
-                                })
-                                error_manager.trigger_maintenance(f"Sensor {lane_name_for_log} kích hoạt ngoài danh sách hàng chờ.")
+                                # --- 3. KHÔNG KHỚP ĐẦU HÀNG CHỜ (Pass-over) ---
+                                # Hàng chờ KHÔNG rỗng, nhưng sensor (i) không phải là
+                                # vật ở đầu hàng chờ (qr_queue[0]).
+                                # Đây là trường hợp vật đi NGANG QUA sensor khác.
+                                
+                                # BỎ QUA HOÀN TOÀN - KHÔNG BÁO LỖI
+                                pass
+                                
+                                # (Optional: Ghi log debug nếu cần, nhưng không báo lỗi cho UI)
+                                # current_queue_for_log = list(qr_queue)
+                                # logging.info(f"[SENSOR] Bỏ qua trigger {lane_name_for_log} (đang chờ lane {qr_queue[0]}). Queue: {current_queue_for_log}")
+                        
+                        # --- HẾT LOGIC MỚI ---
 
                 last_sensor_state[i] = sensor_now
 
@@ -1025,7 +1239,10 @@ def generate_frames():
 
         if frame is None:
             # Nếu đang bảo trì hoặc không có frame, gửi frame đen
-            frame = cv2.imread('black_frame.png') # Tạo 1 file ảnh đen 640x480
+            frame_path = 'black_frame.png'
+            if os.path.exists(frame_path):
+                frame = cv2.imread(frame_path) # Tạo 1 file ảnh đen 640x480
+            
             if frame is None: # Nếu đọc file lỗi, tạo frame đen bằng numpy
                 import numpy as np
                 frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -1084,6 +1301,9 @@ def get_config():
 def update_config():
     """API (POST) để cập nhật config (timing + lanes)."""
     global lanes_config, RELAY_PINS, SENSOR_PINS
+    # (NÂNG CẤP) Thêm biến
+    global pending_sensor_triggers
+
 
     new_config_data = request.json
     if not new_config_data:
@@ -1160,6 +1380,9 @@ def update_config():
             last_sensor_trigger_time = [0.0] * num_lanes
             auto_test_last_state = [1] * num_lanes
             auto_test_last_trigger = [0.0] * num_lanes
+            # (NÂNG CẤP) Reset pending triggers
+            pending_sensor_triggers = [0.0] * num_lanes
+
 
             RELAY_PINS = new_relay_pins
             SENSOR_PINS = new_sensor_pins
@@ -1227,12 +1450,17 @@ def update_config():
 @requires_auth
 def reset_maintenance():
     """API (POST) để reset chế độ bảo trì."""
+    # (NÂNG CẤP) Thêm biến
+    global pending_sensor_triggers, queue_head_since
+
     if error_manager.is_maintenance():
         error_manager.reset()
         with queue_lock:
-            global queue_head_since
             qr_queue.clear()
             queue_head_since = 0.0
+            # (NÂNG CẤP) Reset pending triggers
+            pending_sensor_triggers = [0.0] * len(pending_sensor_triggers)
+
         broadcast_log({"log_type": "success", "message": "Chế độ bảo trì đã được reset từ UI. Hàng chờ đã được xóa."})
         return jsonify({"message": "Maintenance mode reset thành công."})
     else:
@@ -1242,15 +1470,20 @@ def reset_maintenance():
 @requires_auth
 def api_queue_reset():
     """API (POST) để xóa hàng chờ QR."""
+    # (NÂNG CẤP) Thêm biến
+    global pending_sensor_triggers, queue_head_since
+
     if error_manager.is_maintenance():
         return jsonify({"error": "Hệ thống đang bảo trì, không thể reset hàng chờ."}), 403
 
     try:
         with queue_lock:
-            global queue_head_since
             qr_queue.clear()
             queue_head_since = 0.0
             current_queue_for_log = list(qr_queue)
+            # (NÂNG CẤP) Reset pending triggers
+            pending_sensor_triggers = [0.0] * len(pending_sensor_triggers)
+
 
         with state_lock:
             for lane in system_state["lanes"]:
@@ -1395,12 +1628,16 @@ def ws_route(ws):
                             reset_all_relays_to_default()
 
                     elif action == "reset_maintenance":
+                        # (NÂNG CẤP) Thêm biến
+                        global pending_sensor_triggers, queue_head_since
                         if error_manager.is_maintenance():
                             error_manager.reset()
                             with queue_lock:
-                                global queue_head_since
                                 qr_queue.clear()
                                 queue_head_since = 0.0
+                                # (NÂNG CẤP) Reset pending triggers
+                                pending_sensor_triggers = [0.0] * len(pending_sensor_triggers)
+
                             
                             # (FIX LỖI ĐỒNG BỘ) Cập nhật queue indices vào state
                             with state_lock:
@@ -1435,6 +1672,9 @@ def ws_route(ws):
 # =============================
 #             MAIN
 # =============================
+# (NÂNG CẤP) Khởi tạo biến global ở top-level
+pending_sensor_triggers = []
+
 if __name__ == "__main__":
     try:
         # Setup logging
@@ -1496,19 +1736,19 @@ if __name__ == "__main__":
 
 
         logging.info("=========================================")
-        logging.info("  HỆ THỐNG PHÂN LOẠI SẴN SÀNG (V1.7 - QR Standardized)")
+        logging.info("  HỆ THỐNG PHÂN LOẠI SẴN SÀNG (V2.0 - Sensor-First)")
         logging.info(f"  GPIO Mode: {'REAL' if isinstance(GPIO, RealGPIO) else 'MOCK'} (Config: {loaded_gpio_mode})")
         logging.info(f"  Log file: {LOG_FILE}")
         logging.info(f"  Sort log file: {SORT_LOG_FILE}")
-        logging.info(f"  API State: http://<IP_CUA_PI>:5000/api/state")
+        logging.info(f"  API State: http://<IP_CUA_PI>:3000 (Đã đổi port 3000)")
         if AUTH_ENABLED:
-            logging.info(f"  Truy cập: http://<IP_CUA_PI>:5000 (User: {USERNAME} / Pass: {PASSWORD})")
+            logging.info(f"  Truy cập: http://<IP_CUA_PI>:3000 (User: {USERNAME} / Pass: {PASSWORD})")
         else:
-            logging.info("  Truy cập: http://<IP_CUA_PI>:5000 (không yêu cầu đăng nhập)")
+            logging.info("  Truy cập: http://<IP_CUA_PI>:3000 (không yêu cầu đăng nhập)")
         logging.info("=========================================")
         
 
-        # Chạy Flask server
+        # Chạy Flask server (Đổi port 3000 cho an toàn)
         app.run(host='0.0.0.0', port=3000)
 
     except KeyboardInterrupt:
