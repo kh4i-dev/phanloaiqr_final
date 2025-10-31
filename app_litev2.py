@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import cv2, time, json, threading
+import os
 from flask import Flask, Response, send_from_directory
 from flask_sock import Sock
 import RPi.GPIO as GPIO
@@ -11,7 +12,7 @@ ACTIVE_LOW = True
 CYCLE_DELAY = 0.3       # Thời gian đẩy
 SETTLE_DELAY = 0.2      # Thời gian chờ
 DEBOUNCE = 0.1          # Chống nhiễu sensor
-PUSH_DELAY = 0.2         # Thời gian trễ trước khi piston hoạt động
+PUSH_DELAY = 0.5        # Thời gian trễ trước khi piston hoạt động
 QUEUE_TIMEOUT = 10.0     # Timeout hàng chờ
 main_running = True
 
@@ -173,8 +174,7 @@ sock = Sock(app)
 
 @app.route("/")
 def index():
-    """Trả về giao diện điều khiển (HTML đặt cùng thư mục)."""
-    return send_from_directory(".", "index_lite.html")
+    return send_from_directory(os.path.dirname(__file__), "index_lite.html")
 
 @app.route("/video_feed")
 def video_feed():
@@ -223,7 +223,7 @@ if __name__ == "__main__":
         threading.Thread(target=camera_thread, daemon=True).start()
         threading.Thread(target=main_loop, daemon=True).start()
         log(f"🚀 Hệ thống phân loại khởi động (PUSH_DELAY = {PUSH_DELAY}s, 4 làn)")
-        app.run(host="0.0.0.0", port=3000, debug=False, threaded=True)
+        app.run(host="0.0.0.0", port=3000)
     except KeyboardInterrupt:
         log("🛑 Dừng hệ thống (Ctrl+C).")
     finally:

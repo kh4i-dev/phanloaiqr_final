@@ -1,33 +1,37 @@
 {
     "timing_config": {
-        "id":1,
         "cycle_delay": 0.3,
         "settle_delay": 0.2,
         "sensor_debounce": 0.1,
         "push_delay": 0,
-        "gpio_mode": "BCM"
+        "gpio_mode": "BCM",
+        "id": 1
     },
     "lanes_config": [
         {
-            "name": "Phân loại A (Đẩy)",
+            "id": "A",
+            "name": "Ph\u00e2n lo\u1ea1i A (\u0110\u1ea9y)",
             "sensor_pin": 3,
             "push_pin": 17,
             "pull_pin": 18
         },
         {
-            "name": "Phân loại B (Đẩy)",
+            "id": "B",
+            "name": "Ph\u00e2n lo\u1ea1i B (\u0110\u1ea9y)",
             "sensor_pin": 23,
             "push_pin": 27,
             "pull_pin": 14
         },
         {
-            "name": "Phân loại C (Đẩy)",
+            "id": "C",
+            "name": "Ph\u00e2n lo\u1ea1i C (\u0110\u1ea9y)",
             "sensor_pin": 24,
             "push_pin": 22,
             "pull_pin": 4
         },
         {
-            "name": "Lane D (Đi thẳng/Thoát)",
+            "id": "D",
+            "name": "Lane D (\u0110i th\u1eb3ng/Tho\u00e1t)",
             "sensor_pin": 25,
             "push_pin": null,
             "pull_pin": null

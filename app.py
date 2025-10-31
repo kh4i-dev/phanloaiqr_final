@@ -1424,14 +1424,13 @@ def ws_route(ws):
 # =============================
 #     (MỚI) HÀM KHỞI ĐỘNG THREAD
 # =============================
-def start_background_threads():
-    """Khởi động toàn bộ luồng nền."""
-    logging.info("[SYSTEM] Starting all background threads...")
-    threading.Thread(target=camera_capture_thread, name="CameraThread", daemon=True).start()
-    threading.Thread(target=qr_detection_loop, name="QRThread", daemon=True).start()
-    threading.Thread(target=sensor_monitoring_thread, name="SensorThread", daemon=True).start()
-    threading.Thread(target=broadcast_state, name="BroadcastThread", daemon=True).start()
-    threading.Thread(target=periodic_config_save, name="ConfigSaveThread", daemon=True).start()
+# def start_background_threads():
+    #"""Khởi động toàn bộ luồng nền."""
+    # threading.Thread(target=camera_capture_thread, name="CameraThread", daemon=True).start()
+    #threading.Thread(target=qr_detection_loop, name="QRThread", daemon=True).start()
+    #threading.Thread(target=sensor_monitoring_thread, name="SensorThread", daemon=True).start()
+    #threading.Thread(target=broadcast_state, name="BroadcastThread", daemon=True).start()
+    #threading.Thread(target=periodic_config_save, name="ConfigSaveThread", daemon=True).start()
         
 # =============================
 #             MAIN
@@ -1510,7 +1509,7 @@ if __name__ == "__main__":
         
 
         # Chạy Flask server
-        app.run(host='0.0.0.0', port=3000, debug=False, threaded=True)
+        app.run(host='0.0.0.0', port=3000)
 
     except KeyboardInterrupt:
         logging.info("\n🛑 Dừng hệ thống (Ctrl+C)...")
