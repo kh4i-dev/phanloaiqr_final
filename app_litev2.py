@@ -1,20 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-BẢN TỐI GIẢN (app_lite_ultra.py)
----------------------------------
-- Không cần config.json
-- 4 làn (A–D), trong đó D không có sensor
-- Có hàng chờ QR, xử lý tuần tự
-- Có PUSH_DELAY (độ trễ trước chu trình)
-- Có camera + WebSocket hiển thị realtime
-- Mọi log đều in ra terminal + gửi UI
-"""
-
 import cv2, time, json, threading
 from flask import Flask, Response, send_from_directory
 from flask_sock import Sock
 import RPi.GPIO as GPIO
-
 # =============================
 # ⚙️ CẤU HÌNH CƠ BẢN
 # =============================
@@ -235,7 +223,7 @@ if __name__ == "__main__":
         threading.Thread(target=camera_thread, daemon=True).start()
         threading.Thread(target=main_loop, daemon=True).start()
         log(f"🚀 Hệ thống phân loại khởi động (PUSH_DELAY = {PUSH_DELAY}s, 4 làn)")
-        app.run(host="0.0.0.0", port=5000)
+        app.run(host="0.0.0.0", port=3000, debug=False, threaded=True)
     except KeyboardInterrupt:
         log("🛑 Dừng hệ thống (Ctrl+C).")
     finally:

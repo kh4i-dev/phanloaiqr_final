@@ -1510,7 +1510,7 @@ if __name__ == "__main__":
         
 
         # Chạy Flask server
-        app.run(host='0.0.0.0', port=5000)
+        app.run(host='0.0.0.0', port=3000, debug=False, threaded=True)
 
     except KeyboardInterrupt:
         logging.info("\n🛑 Dừng hệ thống (Ctrl+C)...")
